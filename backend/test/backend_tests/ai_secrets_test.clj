@@ -15,12 +15,14 @@
   (let [input {:api-key "secret"
                :nested {:authorization "Bearer secret"
                         :safe "visible"}
-               :items [{:credential "other-secret"}]}
+               :items [{:credential "other-secret"}]
+               "accessToken" "string-key-secret"}
         result (secrets/redact-value input)]
     (t/is (= secrets/redacted (:api-key result)))
     (t/is (= secrets/redacted (get-in result [:nested :authorization])))
     (t/is (= "visible" (get-in result [:nested :safe])))
-    (t/is (= secrets/redacted (get-in result [:items 0 :credential])))))
+    (t/is (= secrets/redacted (get-in result [:items 0 :credential])))
+    (t/is (= secrets/redacted (get result "accessToken")))))
 
 (t/deftest validates-request-local-credentials
   (t/is (secrets/valid-session-key? "sk-valid"))
