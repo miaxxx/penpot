@@ -6,20 +6,19 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.main.repo :as rp]
+   [app.main.ui.workspace.sidebar.ai.repository-harness
+    :refer [repository-harness*]]
    [beicon.v2.core :as rx]
    [clojure.string :as str]
    [rumext.v2 :as mf]))
 
-(defn- file-from-event
-  [event]
+(defn- file-from-event [event]
   (aget (.. event -target -files) 0))
 
-(defn- base64-from-data-url
-  [value]
+(defn- base64-from-data-url [value]
   (second (str/split (str value) #"," 2)))
 
-(defn- read-package!
-  [file on-ready on-error]
+(defn- read-package! [file on-ready on-error]
   (let [reader (js/FileReader.)
         filename (.-name file)
         zip? (str/ends-with? (str/lower-case filename) ".zip")]
@@ -39,8 +38,7 @@
       (.readAsDataURL reader file)
       (.readAsText reader file))))
 
-(defn- toggle-set!
-  [state* value]
+(defn- toggle-set! [state* value]
   (swap! state*
          (fn [values]
            (let [values (set values)]
@@ -57,10 +55,8 @@
             :class (stl/css :module-card)}
       [:div {:class (stl/css :module-card-heading)}
        [:strong label]
-       [:span {:class (stl/css :module-status)}
-        (name status)]]
-      [:div {:class (stl/css :module-description)}
-       description]])])
+       [:span {:class (stl/css :module-status)} (name status)]]
+      [:div {:class (stl/css :module-description)} description]])])
 
 (mf/defc skill-row*
   {::mf/private true}
@@ -72,12 +68,9 @@
                :checked selected?
                :on-change on-select}]
       [:span
-       [:span {:class (stl/css :skill-name)}
-        (:name skill)]
+       [:span {:class (stl/css :skill-name)} (:name skill)]
        [:span {:class (stl/css :skill-meta)}
-        (str (:version skill)
-             " · "
-             (name (or (:source skill) :upload)))]
+        (str (:version skill) " · " (name (or (:source skill) :upload)))]
        (when (seq (:description skill))
          [:span {:class (stl/css :skill-description)}
           (:description skill)])]]
@@ -105,9 +98,7 @@
         (mf/use-fn
          (fn [error]
            (reset! status* :error)
-           (reset! message*
-                   (or (:hint error)
-                       "Harness request failed."))))
+           (reset! message* (or (:hint error) "Harness request failed."))))
 
         load!
         (mf/use-fn
@@ -126,9 +117,7 @@
                          set-error!)))
                  set-error!))
            (->> (rp/cmd! :list-ai-harness-plugins {})
-                (rx/subs!
-                 (fn [plugins] (reset! plugins* plugins))
-                 (fn [_] nil)))))
+                (rx/subs! #(reset! plugins* %) (fn [_] nil)))))
 
         install!
         (mf/use-fn
@@ -201,26 +190,26 @@
       [:span
        [:strong "Harness Engineering"]
        [:span {:class (stl/css :harness-caption)}
-        "Skills · Commands · Context · Coordinator · Plugins"]]
+        "Repository · Skills · Commands · Context · Coordinator · Plugins"]]
       [:span (if @open?* "−" "+")]]
 
      (when @open?*
        [:div {:class (stl/css :harness-body)}
+        [:> repository-harness*]
+
         [:div {:class (stl/css :harness-controls)}
          [:label
           [:span "Persona"]
           [:select {:value (name @persona*)
-                    :on-change
-                    #(reset! persona*
-                             (keyword (.. % -target -value)))}
+                    :on-change #(reset! persona*
+                                        (keyword (.. % -target -value)))}
            [:option {:value "assistant"} "Assistant"]
            [:option {:value "buddy"} "Buddy"]]]
          [:label
           [:span "Input"]
           [:select {:value (name @input-mode*)
-                    :on-change
-                    #(reset! input-mode*
-                             (keyword (.. % -target -value)))}
+                    :on-change #(reset! input-mode*
+                                        (keyword (.. % -target -value)))}
            [:option {:value "assistant"} "Assistant"]
            [:option {:value "voice"} "Voice transcript"]
            [:option {:value "vim"} "Vim command"]
@@ -246,29 +235,23 @@
           "SKILL.md, JSON or bounded ZIP · data only · no arbitrary code"]]
 
         (when @message*
-          [:div {:class (stl/css :harness-message)}
-           @message*])
+          [:div {:class (stl/css :harness-message)} @message*])
 
         [:div {:class (stl/css :harness-section-title)}
-         (str "Skills · "
-              (count @selected-skills*)
-              " selected")]
+         (str "Skills · " (count @selected-skills*) " selected")]
         [:div {:class (stl/css :skill-list)}
          (for [skill @skills*]
            [:> skill-row*
             {:key (:skill-id skill)
              :skill skill
-             :selected?
-             (contains? @selected-skills* (:skill-id skill))
-             :on-select
-             #(toggle-set! selected-skills* (:skill-id skill))
+             :selected? (contains? @selected-skills* (:skill-id skill))
+             :on-select #(toggle-set! selected-skills* (:skill-id skill))
              :on-enabled #(set-skill-enabled! skill)
              :on-delete #(delete-skill! skill)}])]
 
         (when (seq @plugins*)
           [:<>
-           [:div {:class (stl/css :harness-section-title)}
-            "Installed plugins"]
+           [:div {:class (stl/css :harness-section-title)} "Installed plugins"]
            [:div {:class (stl/css :plugin-list)}
             (for [plugin @plugins*]
               [:div {:key (:plugin-id plugin)
@@ -288,13 +271,11 @@
                           :on-click #(delete-plugin! plugin)}
                  "Delete"]]])]])
 
-        [:div {:class (stl/css :harness-section-title)}
-         "Capability modules"]
+        [:div {:class (stl/css :harness-section-title)} "Capability modules"]
         [:> module-grid* {:modules @modules*}]
 
         (when (= @status* :uploading)
           [:div {:class (stl/css :harness-message)}
            "Validating and installing package…"])
         (when (= @status* :error)
-          [:div {:class (stl/css :harness-error)}
-           @message*])])]))
+          [:div {:class (stl/css :harness-error)} @message*])])]))
