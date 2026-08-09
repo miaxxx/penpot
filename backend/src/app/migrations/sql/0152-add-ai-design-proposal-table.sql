@@ -25,6 +25,8 @@ CREATE TABLE ai_design_proposal (
   CONSTRAINT ai_design_proposal__status__check
     CHECK (status IN ('validated', 'previewed', 'applying', 'applied',
                       'discarded', 'conflicted', 'expired')),
+  CONSTRAINT ai_design_proposal__mode__check
+    CHECK (mode IN ('generate', 'modify', 'refactor', 'adapt')),
   CONSTRAINT ai_design_proposal__dsl_type__check
     CHECK (dsl_type IN ('document', 'patch')),
   CONSTRAINT ai_design_proposal__origin__check
