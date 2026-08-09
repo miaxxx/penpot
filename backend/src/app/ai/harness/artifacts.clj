@@ -8,7 +8,6 @@
    [app.ai.policy :as policy]
    [app.common.ai.repository-harness :as rh]
    [app.common.exceptions :as ex]
-   [app.common.time :as ct]
    [app.common.uuid :as uuid]
    [app.db :as db])
   (:import
@@ -106,7 +105,7 @@
          ["INSERT INTO ai_harness_artifact
              (id, workspace_id, profile_id, path, kind, content_type, content,
               metadata, required, read_order, content_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (workspace_id, path)
            DO UPDATE SET
              kind = EXCLUDED.kind,
@@ -120,7 +119,7 @@
            RETURNING *"
           (uuid/next) workspace-id profile-id path (name kind)
           (or (:content-type artifact) "text/markdown") content
-          (db/encode-json (or (:metadata artifact) {}))
+          (db/json (or (:metadata artifact) {}))
           (boolean (or (:required artifact) (rh/required-artifact? path)))
           (long (or (:read-order artifact) 100))
           (sha256 content)])
@@ -132,23 +131,30 @@
   (doseq [artifact (rh/default-artifacts)]
     (upsert-artifact! cfg profile-id workspace-id artifact)))
 
+(defn- insert-workspace!
+  [cfg profile-id file-id page-id name settings]
+  (db/exec-one!
+   cfg
+   ["INSERT INTO ai_harness_workspace
+       (id, profile_id, file_id, page_id, name, version, status, settings)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+     ON CONFLICT DO NOTHING
+     RETURNING *"
+    (uuid/next) profile-id file-id page-id
+    (or name "Penpot AI Harness") rh/version
+    (db/json (or settings {}))]))
+
 (defn ensure-workspace!
   [cfg profile-id {:keys [file-id page-id name settings]}]
   (policy/ensure-enabled!)
   (policy/ensure-edit! cfg profile-id file-id)
   (or (some-> (raw-workspace cfg profile-id file-id page-id) decode-workspace)
-      (let [row
-            (db/insert! cfg :ai-harness-workspace
-                        {:id (uuid/next)
-                         :profile-id profile-id
-                         :file-id file-id
-                         :page-id page-id
-                         :name (or name "Penpot AI Harness")
-                         :version rh/version
-                         :status "active"
-                         :settings (db/json (or settings {}))})
-            workspace (decode-workspace row)]
-        (seed-defaults! cfg profile-id (:workspace-id workspace))
+      (let [inserted (insert-workspace! cfg profile-id file-id page-id name settings)
+            workspace (decode-workspace
+                       (or inserted
+                           (raw-workspace cfg profile-id file-id page-id)))]
+        (when inserted
+          (seed-defaults! cfg profile-id (:workspace-id workspace)))
         workspace)))
 
 (defn get-workspace!
@@ -199,8 +205,7 @@
 
 (defn import-package!
   [cfg profile-id workspace-id package]
-  (let [artifacts (:artifacts package)
-        total (reduce + 0 (map (comp content-bytes :content) artifacts))]
+  (let [artifacts (:artifacts package)]
     (when-not (and (map? package)
                    (= "penpot-ai-harness" (:format package))
                    (vector? artifacts))
@@ -211,10 +216,11 @@
       (ex/raise :type :validation
                 :code :too-many-ai-harness-artifacts
                 :hint "Harness package contains too many artifacts"))
-    (when (> total max-package-bytes)
-      (ex/raise :type :validation
-                :code :ai-harness-package-too-large
-                :hint "Harness package exceeds the size limit"))
+    (let [total (reduce + 0 (map (comp content-bytes :content) artifacts))]
+      (when (> total max-package-bytes)
+        (ex/raise :type :validation
+                  :code :ai-harness-package-too-large
+                  :hint "Harness package exceeds the size limit")))
     {:workspace-id workspace-id
      :imported
      (mapv #(upsert-artifact! cfg profile-id workspace-id %) artifacts)}))
