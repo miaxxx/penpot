@@ -53,7 +53,7 @@
     :add #{:tokens}}})
 
 (def valid-options-mode
-  #{:design :prototype :inspect})
+  #{:design :prototype :inspect :ai})
 
 (def default-layout
   #{:sitemap
@@ -141,7 +141,7 @@
 (def layout-flags-persistence-mapping
   "A map of layout flags that should be persisted in local storage; the
   value corresponds to the key that will be used for save the data in
-  storage object. It should be namespace qualified."
+  storage object."
   {:hide-palettes :app.main.data.workspace/hide-palettes?
    :colorpalette :app.main.data.workspace/show-colorpalette?
    :textpalette :app.main.data.workspace/show-textpalette?
@@ -153,13 +153,13 @@
   stored in Storage."
   [layout]
   (let [layout (set (or layout #{}))]
-    (reduce-kv (fn [layout flag key]
-                 (condp = (get storage/user key ::none)
-                   ::none layout
-                   false  (disj layout flag)
-                   true   (conj layout flag)))
-               layout
-               layout-flags-persistence-mapping)))
+    (reduce (fn [layout [flag key]]
+              (condp = (get storage/user key ::none)
+                ::none layout
+                false  (disj layout flag)
+                true   (conj layout flag)))
+            layout
+            layout-flags-persistence-mapping)))
 
 (defn persist-layout-flags!
   "Given a set of layout flags, and persist a subset of them to the Storage."
@@ -173,8 +173,8 @@
    :selected-palette-colorpicker :app.main.data.workspace/selected-palette-colorpicker})
 
 (defn load-layout-state
-  "Given state (the :workspace-global) and update it with layout related
-  props that are previously persisted in the Storage."
+  "Given state (the :workspace-global) and update them with the data
+  stored in Storage."
   [state]
   (reduce (fn [state [key skey]]
             (let [val (get storage/user skey ::none)]
@@ -185,8 +185,7 @@
           layout-state-persistence-mapping))
 
 (defn persist-layout-state!
-  "Given state (the :workspace-global) and persists a subset of layout
-  related props to the Storage."
+  "Given state (the :workspace-global) and persist the data in Storage."
   [state]
   (doseq [[key skey] layout-state-persistence-mapping]
     (let [val (get state key ::does-not-exist)]
