@@ -6,4 +6,7 @@
 
 (defprotocol Provider
   (test-connection! [provider cfg credential]
-    "Tests provider connectivity without returning or logging the credential."))
+    "Tests provider connectivity without returning or logging the credential.")
+  (generate-design! [provider cfg request]
+    "Returns provider text for one structured design proposal. The provider has
+    no canvas commit, filesystem, plugin or arbitrary tool capability."))

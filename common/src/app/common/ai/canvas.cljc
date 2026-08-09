@@ -1,0 +1,418 @@
+;; This Source Code Form is subject to the terms of the Mozilla Public
+;; License, v. 2.0. If a copy of the MPL was not distributed with this
+;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+(ns app.common.ai.canvas
+  "Lossless local Penpot canvas snapshots plus bounded model-facing context.
+
+  A snapshot keeps the original Penpot shape maps for compilation, revision
+  checks and conflict handling. `compact-context` intentionally emits a smaller
+  semantic representation so a provider does not receive an entire file by
+  default."
+  (:require
+   [clojure.string :as str]))
+
+(def snapshot-version 2)
+(def default-child-depth 5)
+(def default-parent-depth 2)
+(def default-node-limit 500)
+
+(def ^:private geometry-keys
+  [:x :y :width :height :rotation :flip-x :flip-y :selrect :points])
+
+(def ^:private layout-keys
+  [:layout :layout-flex-dir :layout-gap-type :layout-gap
+   :layout-align-items :layout-align-content :layout-justify-items
+   :layout-justify-content :layout-wrap-type :layout-padding-type
+   :layout-padding :layout-grid-dir :layout-grid-columns :layout-grid-rows
+   :layout-grid-cells :layout-item-margin :layout-item-margin-type
+   :layout-item-h-sizing :layout-item-v-sizing :layout-item-min-h
+   :layout-item-max-h :layout-item-min-w :layout-item-max-w
+   :layout-item-align-self :layout-item-absolute :layout-item-z-index])
+
+(def ^:private style-keys
+  [:fills :strokes :opacity :blend-mode :r1 :r2 :r3 :r4 :shadow :blur
+   :background-blur :masked-group :show-content :hide-fill-on-export])
+
+(def ^:private component-keys
+  [:component-id :component-file :component-root :main-instance :remote-synced
+   :shape-ref :variant-id :variant-name :variant-properties :touched])
+
+(def ^:private behavior-keys
+  [:constraints-h :constraints-v :fixed-scroll :interactions :exports :grids
+   :blocked :locked :hidden :collapsed :hide-in-viewer])
+
+(def ^:private binding-keys
+  [:applied-tokens :plugin-data])
+
+(def ^:private compact-native-excluded-keys
+  #{:id :name :type :x :y :width :height :rotation :flip-x :flip-y
+    :selrect :points :transform :transform-inverse :parent-id :frame-id
+    :shapes :content :position-data :fills :strokes :opacity :blend-mode
+    :r1 :r2 :r3 :r4 :shadow :blur :background-blur :layout
+    :layout-flex-dir :layout-gap-type :layout-gap :layout-align-items
+    :layout-align-content :layout-justify-items :layout-justify-content
+    :layout-wrap-type :layout-padding-type :layout-padding :layout-grid-dir
+    :layout-grid-columns :layout-grid-rows :layout-grid-cells
+    :layout-item-margin :layout-item-margin-type :layout-item-h-sizing
+    :layout-item-v-sizing :layout-item-min-h :layout-item-max-h
+    :layout-item-min-w :layout-item-max-w :layout-item-align-self
+    :layout-item-absolute :layout-item-z-index :component-id :component-file
+    :component-root :main-instance :remote-synced :shape-ref :variant-id
+    :variant-name :variant-properties :touched :constraints-h :constraints-v
+    :fixed-scroll :interactions :exports :grids :blocked :locked :hidden
+    :collapsed :hide-in-viewer :applied-tokens :plugin-data})
+
+(defn- as-keyword
+  [value fallback]
+  (cond
+    (keyword? value) value
+    (string? value) (keyword value)
+    (nil? value) fallback
+    :else fallback))
+
+(defn semantic-id
+  "Returns the stable AI semantic id when present, otherwise the Penpot UUID
+  string. Shape plugin data follows Penpot's keyword -> string map contract."
+  [shape]
+  (or (get-in shape [:plugin-data :ai "semantic-id"])
+      (some-> (:id shape) str)))
+
+(defn semantic-kind
+  [shape]
+  (cond
+    (and (:component-id shape) (:main-instance shape)) :component
+    (:component-id shape) :component-instance
+    (= :frame (:type shape))
+    (case (:layout shape)
+      :grid :grid
+      :flex :stack
+      :frame)
+    (= :group (:type shape)) :group
+    (= :bool (:type shape)) :boolean-shape
+    (= :rect (:type shape)) :shape
+    (= :circle (:type shape)) :shape
+    (= :path (:type shape)) :path
+    (= :svg-raw (:type shape)) :svg
+    (= :image (:type shape)) :image
+    (= :text (:type shape)) :text
+    :else :unknown))
+
+(defn- collect-text-values
+  [value]
+  (cond
+    (map? value)
+    (concat
+     (when (string? (:text value)) [(:text value)])
+     (mapcat collect-text-values (vals (dissoc value :text))))
+
+    (sequential? value)
+    (mapcat collect-text-values value)
+
+    :else []))
+
+(defn plain-text
+  [shape]
+  (->> (:content shape)
+       collect-text-values
+       (remove str/blank?)
+       (str/join "\n")
+       not-empty))
+
+(defn- collect-text-runs
+  [value]
+  (cond
+    (map? value)
+    (concat
+     (when (string? (:text value))
+       [(select-keys value
+                     [:text :font-family :font-size :font-style :font-weight
+                      :direction :text-decoration :text-transform
+                      :letter-spacing :line-height :fills
+                      :typography-ref-id :typography-ref-file])])
+     (mapcat collect-text-runs (vals (dissoc value :text))))
+
+    (sequential? value)
+    (mapcat collect-text-runs value)
+
+    :else []))
+
+(defn text-runs
+  "Returns bounded rich-text run metadata so the model can reason about copy
+  and typography without receiving editor-only position caches."
+  [shape]
+  (->> (:content shape)
+       collect-text-runs
+       (take 64)
+       vec))
+
+(defn- select-present
+  [shape keys]
+  (reduce (fn [result key]
+            (if (contains? shape key)
+              (assoc result key (get shape key))
+              result))
+          {}
+          keys))
+
+(defn- compact-native
+  [shape]
+  (reduce-kv
+   (fn [result key value]
+     (if (contains? compact-native-excluded-keys key)
+       result
+       (assoc result key value)))
+   {}
+   shape))
+
+(defn shape->node
+  "Converts one native Penpot shape to a semantic node while retaining the
+  complete original shape under `:penpot`."
+  [shape]
+  {:id (semantic-id shape)
+   :penpot-id (:id shape)
+   :kind (semantic-kind shape)
+   :penpot-type (:type shape)
+   :name (:name shape)
+   :parent-id (:parent-id shape)
+   :frame-id (:frame-id shape)
+   :children (vec (or (:shapes shape) []))
+   :text (plain-text shape)
+   :text-runs (text-runs shape)
+   :geometry (select-present shape geometry-keys)
+   :layout (select-present shape layout-keys)
+   :style (select-present shape style-keys)
+   :component (select-present shape component-keys)
+   :behavior (select-present shape behavior-keys)
+   :bindings (select-present shape binding-keys)
+   :native (compact-native shape)
+   :penpot (into {} shape)})
+
+(defn build-index
+  "Builds semantic id -> Penpot UUID lookup. Duplicate semantic ids are
+  reported separately and never silently replace the first mapping."
+  [objects]
+  (reduce-kv
+   (fn [{:keys [index duplicates] :as result} id shape]
+     (let [semantic (semantic-id shape)]
+       (if (contains? index semantic)
+         (assoc result :duplicates (conj duplicates semantic))
+         (assoc result :index (assoc index semantic id)))))
+   {:index {} :duplicates #{}}
+   objects))
+
+(defn resolve-id
+  [snapshot id]
+  (cond
+    (nil? id) nil
+    (contains? (:penpot snapshot) id) id
+    :else (get (:index snapshot) (str id))))
+
+(defn descendant-ids
+  "Returns root and all descendants. Cycles and missing references terminate
+  safely and are recorded by `integrity-report`."
+  [objects root-id]
+  (loop [queue (if root-id [root-id] [])
+         seen #{}
+         result []]
+    (if-let [id (first queue)]
+      (if (contains? seen id)
+        (recur (subvec (vec queue) 1) seen result)
+        (let [children (vec (or (:shapes (get objects id)) []))]
+          (recur (into (subvec (vec queue) 1) children)
+                 (conj seen id)
+                 (conj result id))))
+      result)))
+
+(defn parent-ids
+  [objects id max-depth]
+  (loop [current-id id
+         depth 0
+         seen #{}
+         result []]
+    (let [parent-id (:parent-id (get objects current-id))]
+      (if (or (nil? parent-id)
+              (contains? seen parent-id)
+              (>= depth max-depth)
+              (nil? (get objects parent-id)))
+        result
+        (recur parent-id
+               (inc depth)
+               (conj seen parent-id)
+               (conj result parent-id))))))
+
+(defn component-root-id
+  "Resolves the nearest component root/main instance for any selected child.
+  Falls back to the highest component-bound ancestor, then to the original id."
+  [objects id]
+  (loop [current-id id
+         seen #{}
+         candidate nil]
+    (let [shape (get objects current-id)
+          component? (or (:component-id shape)
+                         (:component-root shape)
+                         (:main-instance shape))
+          candidate (if component? current-id candidate)
+          parent-id (:parent-id shape)]
+      (cond
+        (nil? shape) candidate
+        (or (:component-root shape) (:main-instance shape)) current-id
+        (nil? parent-id) (or candidate id)
+        (= parent-id current-id) (or candidate id)
+        (contains? seen parent-id) (or candidate id)
+        (nil? (get objects parent-id)) (or candidate id)
+        :else (recur parent-id (conj seen current-id) candidate)))))
+
+(defn integrity-report
+  [objects]
+  (let [missing-children
+        (reduce-kv
+         (fn [errors parent-id shape]
+           (into errors
+                 (keep (fn [child-id]
+                         (when-not (contains? objects child-id)
+                           {:code :missing-child
+                            :parent-id parent-id
+                            :child-id child-id})))
+                 (:shapes shape)))
+         []
+         objects)
+
+        missing-parents
+        (reduce-kv
+         (fn [errors id shape]
+           (let [parent-id (:parent-id shape)]
+             (cond-> errors
+               (and parent-id
+                    (not= id parent-id)
+                    (not (contains? objects parent-id)))
+               (conj {:code :missing-parent
+                      :id id
+                      :parent-id parent-id}))))
+         []
+         objects)
+
+        cycles
+        (reduce-kv
+         (fn [errors id _]
+           (loop [current id
+                  seen #{}]
+             (let [parent (:parent-id (get objects current))]
+               (cond
+                 (nil? parent) errors
+                 (= parent current) errors
+                 (contains? seen parent)
+                 (conj errors {:code :parent-cycle :id id :at parent})
+                 (nil? (get objects parent)) errors
+                 :else (recur parent (conj seen current))))))
+         []
+         objects)]
+    {:valid? (empty? (concat missing-children missing-parents cycles))
+     :errors (vec (concat missing-children missing-parents cycles))}))
+
+(defn scope-ids
+  "Returns Penpot UUIDs readable/writable by a scope. Selection scopes support
+  true multi-selection; component scopes climb from any selected descendant to
+  the nearest native component root."
+  [objects snapshot {:keys [type root-id rootId selection-ids selectionIds]}]
+  (let [type (as-keyword type :selection)
+        root-ref (or root-id rootId)
+        selected (or selection-ids selectionIds [])
+        resolved-root (resolve-id snapshot root-ref)
+        resolved-selected (keep #(resolve-id snapshot %) selected)
+        roots (case type
+                :page (keys objects)
+                :component (let [source (or resolved-root (first resolved-selected))]
+                             (when source [(component-root-id objects source)]))
+                :selection (->> (concat (when resolved-root [resolved-root])
+                                        resolved-selected)
+                                distinct
+                                vec)
+                [])]
+    (if (= type :page)
+      (set (keys objects))
+      (into #{} (mapcat #(descendant-ids objects %) (remove nil? roots))))))
+
+(defn build-snapshot
+  [{:keys [file-id page-id revision objects scope]
+    :or {objects {} scope {:type :page}}}]
+  (let [{:keys [index duplicates]} (build-index objects)
+        nodes (into {} (map (fn [[id shape]] [id (shape->node shape)])) objects)
+        snapshot {:snapshot-version snapshot-version
+                  :file-id file-id
+                  :page-id page-id
+                  :revision revision
+                  :scope scope
+                  :penpot objects
+                  :nodes nodes
+                  :index index
+                  :duplicate-semantic-ids duplicates}
+        allowed (scope-ids objects snapshot scope)]
+    (assoc snapshot
+           :scope-ids allowed
+           :integrity (integrity-report objects))))
+
+(defn- compact-node
+  [node]
+  (cond->
+   {:id (:id node)
+    :penpot-id (some-> (:penpot-id node) str)
+    :kind (:kind node)
+    :penpot-type (:penpot-type node)
+    :name (:name node)
+    :parent-id (some-> (:parent-id node) str)
+    :frame-id (some-> (:frame-id node) str)
+    :children (mapv str (:children node))
+    :geometry (:geometry node)
+    :layout (:layout node)
+    :style (:style node)
+    :component (:component node)
+    :behavior (:behavior node)
+    :tokens (get-in node [:bindings :applied-tokens])
+    :plugin-data (get-in node [:bindings :plugin-data])
+    :native (:native node)}
+    (:text node) (assoc :text (:text node))
+    (seq (:text-runs node)) (assoc :text-runs (:text-runs node))))
+
+(defn compact-context
+  "Builds a bounded model-facing context from a local snapshot. Parent context
+  is included separately so the model understands constraints without gaining
+  write access outside the declared scope."
+  ([snapshot] (compact-context snapshot {}))
+  ([snapshot {:keys [node-limit parent-depth]
+              :or {node-limit default-node-limit
+                   parent-depth default-parent-depth}}]
+   (let [objects (:penpot snapshot)
+         scoped (->> (:scope-ids snapshot)
+                     (sort-by str)
+                     (take node-limit)
+                     vec)
+         parent-set (->> scoped
+                         (mapcat #(parent-ids objects % parent-depth))
+                         set
+                         (sort-by str)
+                         vec)
+         nodes (:nodes snapshot)]
+     {:snapshot-version snapshot-version
+      :file-id (some-> (:file-id snapshot) str)
+      :page-id (some-> (:page-id snapshot) str)
+      :revision (:revision snapshot)
+      :scope (:scope snapshot)
+      :scope-node-count (count (:scope-ids snapshot))
+      :truncated? (> (count (:scope-ids snapshot)) node-limit)
+      :duplicate-semantic-ids (mapv str (:duplicate-semantic-ids snapshot))
+      :nodes (mapv #(compact-node (get nodes %)) scoped)
+      :parents (mapv #(compact-node (get nodes %)) parent-set)
+      :integrity (:integrity snapshot)})))
+
+(defn summary
+  [snapshot]
+  (let [scope-nodes (keep #(get-in snapshot [:nodes %]) (:scope-ids snapshot))]
+    {:node-count (count scope-nodes)
+     :text-node-count (count (filter :text scope-nodes))
+     :component-count (count (filter #(seq (:component %)) scope-nodes))
+     :token-bound-count (count (filter #(seq (get-in % [:bindings :applied-tokens])) scope-nodes))
+     :interaction-count (reduce + 0 (map #(count (get-in % [:behavior :interactions])) scope-nodes))
+     :kinds (frequencies (map :kind scope-nodes))
+     :duplicate-semantic-id-count (count (:duplicate-semantic-ids snapshot))
+     :integrity-valid? (get-in snapshot [:integrity :valid?])}))
