@@ -7,7 +7,6 @@
   (:require
    [app.common.ai.canvas :as canvas]
    [app.common.ai.compiler :as compiler]
-   [app.common.ai.normalize :as normalize]
    [app.common.ai.patch :as patch]
    [app.common.ai.validation :as validation]
    [app.common.files.changes-builder :as pcb]
@@ -42,7 +41,7 @@
        set))
 
 (defn- validate-result-shapes!
-  [before after diff]
+  [after diff]
   (doseq [id (concat (:created diff) (keys (:modified diff)))]
     (when-let [shape (get after id)]
       (cts/check-shape shape)))
@@ -51,8 +50,10 @@
 (defn- apply-removals
   [changes before removed]
   (if (seq removed)
-    (let [ids (sort-by #(object-depth before %) > removed)]
-      (pcb/remove-objects changes ids {:ignore-touched false}))
+    (pcb/remove-objects
+     changes
+     (sort-by #(object-depth before %) > removed)
+     {:ignore-touched false})
     changes))
 
 (defn- apply-additions
@@ -78,7 +79,7 @@
            index (first (keep-indexed (fn [index child-id]
                                         (when (= id child-id) index))
                                       (:shapes parent)))]
-       (if (and shape parent-id)
+       (if (and shape parent-id parent)
          (pcb/change-parent changes parent-id [shape] index
                             {:ignore-touched true})
          changes)))
@@ -104,11 +105,11 @@
    modified))
 
 (defn prepare-object-diff
-  "Compiles an in-memory before/after object graph into native Penpot redo and
-  undo changes. No workspace state or collaboration history is mutated."
+  "Compiles an in-memory before/after graph into native Penpot redo and undo
+  changes. No workspace state, collaboration history or persistence is mutated."
   [origin page-id before after]
   (let [diff (patch/diff-objects before after)
-        _ (validate-result-shapes! before after diff)
+        _ (validate-result-shapes! after diff)
         changes (-> (pcb/empty-changes origin page-id)
                     (pcb/with-objects before)
                     (apply-removals before (:removed diff))
@@ -134,6 +135,23 @@
      :parent-ids parent-ids
      :diff diff}))
 
+(defn- scope-type
+  [scope]
+  (let [value (:type scope)]
+    (if (keyword? value) value (some-> value keyword))))
+
+(defn- scope-root
+  [scope]
+  (or (:root-id scope) (:rootId scope)))
+
+(defn- compatible-scope?
+  [expected actual]
+  (and (= (scope-type expected) (scope-type actual))
+       (or (not (contains? #{:selection :component} (scope-type expected)))
+           (nil? (scope-root expected))
+           (= (str (scope-root expected))
+              (str (scope-root actual))))))
+
 (defn proposal-from-document
   [{:keys [file-id page-id revision objects scope document parent-id
            parent-frame-id registry]}]
@@ -145,55 +163,81 @@
                        :page-id page-id
                        :revision revision
                        :objects objects
-                       :scope scope})
-            compiled (compiler/compile-document
-                      (:ir validated)
-                      {:parent-id parent-id
-                       :parent-frame-id parent-frame-id
-                       :registry registry})]
-        (if-not (:valid? compiled)
-          {:valid? false :errors (:errors compiled) :warnings (:warnings compiled)}
-          (let [root-id (first (:root-ids compiled))
-                parent (get objects parent-id)
-                after (reduce (fn [result shape]
-                                (assoc result (:id shape) shape))
-                              objects
-                              (:shapes compiled))
-                after (if parent
-                        (update-in after [parent-id :shapes]
-                                   (fn [children]
-                                     (conj (vec (or children [])) root-id)))
-                        after)
-                prepared (prepare-object-diff ::document page-id objects after)]
-            (merge prepared
-                   {:valid? true
-                    :type :document
-                    :snapshot snapshot
-                    :semantic-index (:semantic-index compiled)
-                    :warnings (:warnings compiled)
-                    :errors []})))))))
+                       :scope scope})]
+        (cond
+          (nil? parent-id)
+          {:valid? false
+           :errors [{:code :missing-target-parent
+                     :message "Select a frame/container before generating a document."}]
+           :warnings []}
+
+          (not (contains? (:scope-ids snapshot) parent-id))
+          {:valid? false
+           :errors [{:code :out-of-scope
+                     :message "Generated document target is outside the active scope."}]
+           :warnings []}
+
+          :else
+          (let [compiled (compiler/compile-document
+                          (:ir validated)
+                          {:parent-id parent-id
+                           :parent-frame-id parent-frame-id
+                           :registry registry})]
+            (if-not (:valid? compiled)
+              {:valid? false
+               :errors (:errors compiled)
+               :warnings (:warnings compiled)}
+              (let [root-id (first (:root-ids compiled))
+                    parent (get objects parent-id)
+                    after (reduce (fn [result shape]
+                                    (assoc result (:id shape) shape))
+                                  objects
+                                  (:shapes compiled))
+                    after (update-in after [parent-id :shapes]
+                                     (fn [children]
+                                       (conj (vec (or children [])) root-id)))
+                    prepared (prepare-object-diff ::document page-id objects after)]
+                (merge prepared
+                       {:valid? true
+                        :type :document
+                        :snapshot snapshot
+                        :semantic-index (:semantic-index compiled)
+                        :warnings (:warnings compiled)
+                        :errors []})))))))))
 
 (defn proposal-from-patch
-  [{:keys [file-id page-id revision objects patch registry]}]
+  [{:keys [file-id page-id revision objects patch registry scope]}]
   (let [validated (validation/validate-patch patch)]
     (if-not (:valid? validated)
       {:valid? false :errors (:errors validated) :warnings (:warnings validated)}
       (let [patch-ir (:ir validated)
-            snapshot (canvas/build-snapshot
-                      {:file-id file-id
-                       :page-id page-id
-                       :revision revision
-                       :objects objects
-                       :scope (:scope patch-ir)})
-            compiled (compiler/compile-patch snapshot patch-ir :registry registry)]
-        (if-not (:valid? compiled)
-          {:valid? false :errors (:errors compiled) :warnings (:warnings compiled)}
-          (merge (prepare-object-diff ::patch page-id objects (:objects compiled))
-                 {:valid? true
-                  :type :patch
-                  :snapshot snapshot
-                  :warnings (:warnings compiled)
-                  :errors []}))))))
+            patch-scope (:scope patch-ir)]
+        (if (and scope (not (compatible-scope? scope patch-scope)))
+          {:valid? false
+           :errors [{:code :scope-escalation
+                     :message "Patch scope differs from the active canvas scope."}]
+           :warnings []}
+          (let [effective-scope (or scope patch-scope)
+                patch-ir (assoc patch-ir :scope effective-scope)
+                snapshot (canvas/build-snapshot
+                          {:file-id file-id
+                           :page-id page-id
+                           :revision revision
+                           :objects objects
+                           :scope effective-scope})
+                compiled (compiler/compile-patch snapshot patch-ir
+                                                 :registry registry)]
+            (if-not (:valid? compiled)
+              {:valid? false
+               :errors (:errors compiled)
+               :warnings (:warnings compiled)}
+              (merge (prepare-object-diff ::patch page-id objects
+                                          (:objects compiled))
+                     {:valid? true
+                      :type :patch
+                      :snapshot snapshot
+                      :warnings (:warnings compiled)
+                      :errors []}))))))))
 
 (defn proposal-stale?
   [current-objects {:keys [base-objects affected-ids]}]
@@ -207,9 +251,9 @@
          affected-ids)))
 
 (defn apply-proposal
-  "Revalidates the proposal against current canvas objects and commits all
-  native changes as one Undo transaction. A stale proposal emits an explicit
-  conflict event and never writes partial changes."
+  "Revalidates against current canvas objects and commits all native changes as
+  one Undo transaction. Stale proposals emit a conflict event and never write
+  partial changes."
   [{:keys [page-id target-objects parent-ids] :as proposal}]
   (ptk/reify ::apply-proposal
     ptk/WatchEvent
