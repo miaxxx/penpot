@@ -41,9 +41,25 @@
 
 (defn tool-descriptor
   [tool]
-  (select-keys tool
-               [:id :version :description :access :capability
-                :confirmation :result :input-schema]))
+  (let [id (:id tool)
+        read-only? (= :read (:access tool))]
+    {:id id
+     :name (name id)
+     :description (:description tool)
+     :inputSchema (:input-schema tool)
+     :annotations
+     {:readOnlyHint read-only?
+      :destructiveHint (contains? #{:proposal/discard :canvas/commit}
+                                  (:capability tool))
+      :idempotentHint (contains? #{:tools/read :canvas/read :dsl/validate
+                                  :proposal/read :proposal/request-apply}
+                                (:capability tool))}
+     :_meta
+     {:registryVersion (:version tool)
+      :access (name (:access tool))
+      :capability (name (:capability tool))
+      :confirmation (name (:confirmation tool))
+      :result (name (:result tool))}}))
 
 (defn list-tools
   []
