@@ -28,11 +28,8 @@
               :code :ai-design-agent-disabled
               :hint "AI Design Agent is disabled"))
 
-  (let [provider-name provider]
-    (case provider-name
-      ("openai" "openai-compatible")
-      (provider/test-connection! openai-compatible/provider cfg params)
-
-      (ex/raise :type :validation
-                :code :unsupported-ai-provider
-                :hint "AI provider is not supported"))))
+  (if (contains? #{"openai" "openai-compatible"} provider)
+    (provider/test-connection! openai-compatible/provider cfg params)
+    (ex/raise :type :validation
+              :code :unsupported-ai-provider
+              :hint "AI provider is not supported")))
