@@ -59,7 +59,8 @@
 
 (def varia
   "Rest of the flags"
-  #{:audit-log
+  #{:ai-design-agent
+    :audit-log
     :audit-log-archive
     :audit-log-gc
     :audit-log-logger

@@ -12,6 +12,7 @@
    [app.common.files.helpers :as cfh]
    [app.common.geom.shapes :as gsh]
    [app.common.types.shape.layout :as ctl]
+   [app.config :as cf]
    [app.main.data.helpers :as dsh]
    [app.main.data.workspace :as udw]
    [app.main.data.workspace.common :as dwc]
@@ -21,6 +22,7 @@
    [app.main.ui.context :as ctx]
    [app.main.ui.ds.layout.tab-switcher :refer [tab-switcher*]]
    [app.main.ui.inspect.right-sidebar :as hrs]
+   [app.main.ui.workspace.sidebar.ai.panel :as ai]
    [app.main.ui.workspace.sidebar.options.drawing :as drawing]
    [app.main.ui.workspace.sidebar.options.menus.align :refer [align-options*]]
    [app.main.ui.workspace.sidebar.options.menus.bool :refer [bool-options*]]
@@ -199,13 +201,22 @@
 
     [:> hrs/right-sidebar* props]))
 
-(def ^:private options-tabs
-  [{:label (tr "workspace.options.design")
-    :id "design"}
-   {:label (tr "workspace.options.prototype")
-    :id "prototype"}
-   {:label (tr "workspace.options.inspect")
-    :id "inspect"}])
+(defn- ai-enabled?
+  []
+  (contains? cf/flags :ai-design-agent))
+
+(defn- options-tabs
+  []
+  (cond->
+   [{:label (tr "workspace.options.design")
+     :id "design"}
+    {:label (tr "workspace.options.prototype")
+     :id "prototype"}
+    {:label (tr "workspace.options.inspect")
+     :id "inspect"}]
+    (ai-enabled?)
+    (conj {:label "AI"
+           :id "ai"})))
 
 (defn- on-option-tab-change
   [mode]
@@ -231,7 +242,7 @@
 
     [:div {:class (stl/css :tool-window)}
      (if (and (:can-edit permissions) (not render-context-lost?))
-       [:> tab-switcher* {:tabs options-tabs
+       [:> tab-switcher* {:tabs (options-tabs)
                           :on-change on-option-tab-change
                           :selected (name options-mode)
                           :class (stl/css :options-tab-switcher)}
@@ -249,6 +260,12 @@
                              :shapes shapes
                              :on-change-section on-change-section
                              :on-expand on-expand}]]
+
+          :ai
+          [:> ai/panel* {:page-id page-id
+                         :file-id file-id
+                         :objects objects
+                         :selected selected}]
 
           :design
           [:> design-menu* {:selected selected

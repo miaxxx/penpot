@@ -53,7 +53,7 @@
     :add #{:tokens}}})
 
 (def valid-options-mode
-  #{:design :prototype :inspect})
+  #{:design :prototype :inspect :ai})
 
 (def default-layout
   #{:sitemap
