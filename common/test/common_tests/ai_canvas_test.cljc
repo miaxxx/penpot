@@ -37,6 +37,28 @@
     :fills [{:fill-color "#ffffff" :fill-opacity 1}]
     :plugin-data {:ai {"semantic-id" name}}}))
 
+(defn- text-shape
+  [id parent-id frame-id semantic-id]
+  (cts/setup-shape
+   {:id id
+    :type :text
+    :name "Styled text"
+    :x 0 :y 0 :width 240 :height 40
+    :parent-id parent-id
+    :frame-id frame-id
+    :plugin-data {:ai {"semantic-id" semantic-id}}
+    :content
+    {:type "root"
+     :children
+     [{:type "paragraph-set"
+       :children
+       [{:type "paragraph"
+         :children
+         [{:text "Old copy"
+           :font-size "20"
+           :font-weight "700"
+           :fills [{:fill-color "#111111" :fill-opacity 1}]}]}]}]}}))
+
 (t/deftest reads-lossless-and-compact-canvas-context
   (let [root-id (uuid/next)
         child-id (uuid/next)
@@ -80,6 +102,70 @@
     (t/is (= second-parent-id
              (get-in result [:objects child-id :parent-id])))
     (t/is (= 1 (get-in result [:diff :counts :moved])))))
+
+(t/deftest preserves-rich-text-style-while-replacing-copy
+  (let [root-id (uuid/next)
+        text-id (uuid/next)
+        objects {root-id (frame root-id uuid/zero [text-id])
+                 text-id (text-shape text-id root-id root-id "headline")}
+        snapshot (canvas/build-snapshot
+                  {:objects objects
+                   :scope {:type :selection :root-id "headline"}})
+        result (patch/apply-patch
+                snapshot
+                {:scope {:type :selection :root-id "headline"}
+                 :operations [{:op :set
+                               :node-id "headline"
+                               :path "text"
+                               :value "New headline"}]})
+        text-run (get-in result
+                         [:objects text-id :content :children 0 :children 0 :children 0])]
+    (t/is (:valid? result))
+    (t/is (= "New headline" (:text text-run)))
+    (t/is (= "20" (:font-size text-run)))
+    (t/is (= "700" (:font-weight text-run)))
+    (t/is (= "#111111" (get-in text-run [:fills 0 :fill-color])))))
+
+(t/deftest binds-semantic-paths-to-native-penpot-tokens
+  (let [root-id (uuid/next)
+        child-id (uuid/next)
+        objects {root-id (frame root-id uuid/zero [child-id])
+                 child-id (rect child-id root-id root-id "card-1")}
+        snapshot (canvas/build-snapshot
+                  {:objects objects
+                   :scope {:type :selection :root-id "card-1"}})
+        result (patch/apply-patch
+                snapshot
+                {:scope {:type :selection :root-id "card-1"}
+                 :operations [{:op :bind-token
+                               :node-id "card-1"
+                               :path "style.fill"
+                               :value "{color.brand.primary}"}]})]
+    (t/is (:valid? result))
+    (t/is (= "color.brand.primary"
+             (get-in result [:objects child-id :applied-tokens :fill])))
+    ;; Binding metadata does not replace the currently resolved visual value.
+    (t/is (= "#ffffff"
+             (get-in result [:objects child-id :fills 0 :fill-color])))))
+
+(t/deftest rejects-invalid-token-binding-targets
+  (let [root-id (uuid/next)
+        child-id (uuid/next)
+        objects {root-id (frame root-id uuid/zero [child-id])
+                 child-id (rect child-id root-id root-id "card-1")}
+        snapshot (canvas/build-snapshot
+                  {:objects objects
+                   :scope {:type :selection :root-id "card-1"}})
+        result (patch/apply-patch
+                snapshot
+                {:scope {:type :selection :root-id "card-1"}
+                 :operations [{:op :bind-token
+                               :node-id "card-1"
+                               :path "name"
+                               :value "{color.brand.primary}"}]})]
+    (t/is (false? (:valid? result)))
+    (t/is (some #(= :unsupported-token-target (:code %))
+                (:errors result)))))
 
 (t/deftest rejects-out-of-scope-patches
   (let [root-id (uuid/next)
