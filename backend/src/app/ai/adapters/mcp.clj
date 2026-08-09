@@ -47,6 +47,10 @@
      :name (name id)
      :description (:description tool)
      :inputSchema (:input-schema tool)
+     :access (:access tool)
+     :capability (:capability tool)
+     :confirmation (:confirmation tool)
+     :result (:result tool)
      :annotations
      {:readOnlyHint read-only?
       :destructiveHint (contains? #{:proposal/discard :canvas/commit}
