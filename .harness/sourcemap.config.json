@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "output": ".harness/generated/code-map.json",
+  "max_file_bytes": 1048576,
+  "max_source_map_bytes": 5242880,
+  "extensions": [
+    ".clj",
+    ".cljs",
+    ".cljc",
+    ".bb",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".rs",
+    ".scss",
+    ".css",
+    ".map"
+  ],
+  "exclude": [
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".shadow-cljs",
+    ".clj-kondo/.cache",
+    ".cache",
+    "coverage",
+    "vendor",
+    ".harness/generated"
+  ],
+  "profiles": {
+    "harness": [
+      "scripts/harness",
+      ".harness"
+    ],
+    "ai": [
+      "backend/src/app/ai",
+      "backend/src/app/rpc/commands/ai.clj",
+      "backend/test/backend_tests/ai_secrets_test.clj",
+      "common/src/app/common/ai",
+      "common/test/common_tests/ai_dsl_test.cljc",
+      "frontend/src/app/main/ui/workspace/sidebar",
+      "frontend/src/app/main/data/workspace",
+      "scripts/harness"
+    ],
+    "all": [
+      "backend/src",
+      "common/src",
+      "frontend/src",
+      "exporter/src",
+      "library/src",
+      "mcp",
+      "plugins",
+      "render-wasm/src",
+      "scripts"
+    ]
+  }
+}

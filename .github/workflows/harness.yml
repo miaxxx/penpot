@@ -1,0 +1,37 @@
+name: Harness
+
+on:
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "init.sh"
+      - "package.json"
+      - ".harness/**"
+      - ".serena/memories/critical-info.md"
+      - ".serena/memories/workflow/harness-engineering.md"
+      - "docs/harness/**"
+      - "scripts/harness/**"
+      - ".github/workflows/harness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Harness self-test
+        run: node scripts/harness/test.mjs
+      - name: Harness structural gate
+        run: node scripts/harness/check.mjs --strict
+      - name: Build focused AI source map
+        run: node scripts/harness/sourcemap.mjs build --profile ai --output tmp/harness/ai-code-map.json
+      - name: Smoke-query AI map
+        run: node scripts/harness/sourcemap.mjs query ai --input tmp/harness/ai-code-map.json

@@ -7,6 +7,16 @@ You are working on the GitHub project `penpot/penpot`, a monorepo.
    before focused memories.
 - Edits/stale refs/duplication cleanup: `mem:memory-maintenance`.
 
+# Harness control plane
+
+- After identifying affected modules, read the repository Harness state:
+  `.harness/feature-list.json`, `.harness/PROGRESS.md`, and
+  `.harness/session-handoff.md`.
+- Startup, scope, verification evidence, source-map navigation, and handoff:
+  `mem:workflow/harness-engineering`.
+- Run `./init.sh --check` before editing. No completion claim without passing,
+  registered verification evidence.
+
 # Development workflow
 
 - Commit only when explicitly asked. Commit/PR format + changelog: `mem:workflow/creating-commits`, `mem:workflow/creating-prs`. Issue creation (titles, labels, body templates, Issue Types): `mem:workflow/creating-issues`.

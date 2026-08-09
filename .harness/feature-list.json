@@ -1,0 +1,169 @@
+{
+  "$schema": "./schemas/feature-list.schema.json",
+  "version": 1,
+  "active_feature_id": "HARN-006",
+  "features": [
+    {
+      "id": "HARN-001",
+      "title": "Install progressive instruction routing",
+      "status": "done",
+      "owner": "harness",
+      "depends_on": [],
+      "scope": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".serena/memories/workflow/harness-engineering.md"
+      ],
+      "acceptance": [
+        "Root instructions remain a concise router.",
+        "Serena module memories remain mandatory before code changes.",
+        "Harness state, checks and source-map docs are discoverable."
+      ],
+      "evidence": [
+        {
+          "check_id": "harness-validate",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        }
+      ]
+    },
+    {
+      "id": "HARN-002",
+      "title": "Persist feature, progress and handoff state",
+      "status": "done",
+      "owner": "harness",
+      "depends_on": [
+        "HARN-001"
+      ],
+      "scope": [
+        ".harness/feature-list.json",
+        ".harness/PROGRESS.md",
+        ".harness/session-handoff.md"
+      ],
+      "acceptance": [
+        "Exactly one active feature is identified.",
+        "Done features require non-empty evidence.",
+        "The next session has a concrete restart path."
+      ],
+      "evidence": [
+        {
+          "check_id": "harness-validate",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        }
+      ]
+    },
+    {
+      "id": "HARN-003",
+      "title": "Add registered verification and evidence execution",
+      "status": "done",
+      "owner": "harness",
+      "depends_on": [
+        "HARN-002"
+      ],
+      "scope": [
+        ".harness/checks.json",
+        ".harness/tool-registry.json",
+        "scripts/harness/evidence.mjs"
+      ],
+      "acceptance": [
+        "Only registered commands can be executed.",
+        "Destructive command patterns are rejected.",
+        "Evidence records exclude environment variables and raw secrets."
+      ],
+      "evidence": [
+        {
+          "check_id": "harness-self-test",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        },
+        {
+          "check_id": "harness-validate",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        }
+      ]
+    },
+    {
+      "id": "HARN-004",
+      "title": "Add repository source-map navigation",
+      "status": "done",
+      "owner": "harness",
+      "depends_on": [
+        "HARN-001"
+      ],
+      "scope": [
+        ".harness/sourcemap.config.json",
+        "scripts/harness/sourcemap.mjs",
+        "docs/harness/source-map.md"
+      ],
+      "acceptance": [
+        "Map generation is deterministic apart from generation metadata.",
+        "Traversal paths from embedded source maps are sanitized.",
+        "Clojure and JS/TS fixture symbols and dependencies are queryable."
+      ],
+      "evidence": [
+        {
+          "check_id": "harness-self-test",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        }
+      ]
+    },
+    {
+      "id": "HARN-005",
+      "title": "Add Harness CI gate",
+      "status": "done",
+      "owner": "harness",
+      "depends_on": [
+        "HARN-003",
+        "HARN-004"
+      ],
+      "scope": [
+        ".github/workflows/harness.yml"
+      ],
+      "acceptance": [
+        "Pull requests touching Harness files run structural validation and tests.",
+        "The focused AI source map builds without installing project dependencies."
+      ],
+      "evidence": [
+        {
+          "check_id": "harness-self-test",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        },
+        {
+          "check_id": "harness-validate",
+          "result": "pass",
+          "recorded_at": "2026-08-09"
+        }
+      ]
+    },
+    {
+      "id": "HARN-006",
+      "title": "Drive the next AI Design Agent slice through the Harness",
+      "status": "in_progress",
+      "owner": "ai-design-agent",
+      "depends_on": [
+        "HARN-001",
+        "HARN-002",
+        "HARN-003",
+        "HARN-004",
+        "HARN-005"
+      ],
+      "scope": [
+        "backend/src/app/ai/**",
+        "common/src/app/common/ai/**",
+        "frontend/src/app/main/ui/workspace/sidebar/**",
+        "related focused tests"
+      ],
+      "acceptance": [
+        "Select one bounded AI Design Agent capability.",
+        "Use source-map evidence to identify affected namespaces and dependency edges.",
+        "Run registered focused checks and record results.",
+        "Preserve feature flag, credential safety and preview/apply transaction boundaries."
+      ],
+      "evidence": []
+    }
+  ]
+}

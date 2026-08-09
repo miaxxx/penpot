@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "default_policy": "deny",
+  "tools": [
+    {
+      "id": "filesystem-read",
+      "capability": "read",
+      "allowed": [
+        "repository files",
+        "git metadata",
+        "logs"
+      ],
+      "denied": [
+        "credential stores",
+        "unrequested personal files"
+      ]
+    },
+    {
+      "id": "repository-search",
+      "capability": "search",
+      "allowed": [
+        "source-map query",
+        "text search",
+        "symbol search"
+      ],
+      "denied": []
+    },
+    {
+      "id": "scoped-edit",
+      "capability": "write",
+      "allowed": [
+        "active feature scope"
+      ],
+      "denied": [
+        "unrelated modules",
+        "generated vendor files"
+      ]
+    },
+    {
+      "id": "registered-check",
+      "capability": "verify",
+      "allowed": [
+        ".harness/checks.json commands"
+      ],
+      "denied": [
+        "arbitrary shell passed through evidence.mjs"
+      ]
+    },
+    {
+      "id": "source-map-build",
+      "capability": "generated-write",
+      "allowed": [
+        ".harness/generated",
+        "tmp/harness"
+      ],
+      "denied": [
+        "source directories"
+      ]
+    },
+    {
+      "id": "destructive-operations",
+      "capability": "destructive",
+      "allowed": [],
+      "denied": [
+        "drop-devenv",
+        "docker compose down -v",
+        "docker volume rm",
+        "rm -rf",
+        "force push",
+        "database destructive migrations"
+      ]
+    }
+  ]
+}
