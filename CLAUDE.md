@@ -1,5 +1,5 @@
-# Claude Code entry
+# Claude Code
 
-Read and follow `AGENTS.md`. The canonical project instructions, state,
-verification gates, tool permissions, source-map workflow, and handoff process
-are routed from there. Do not duplicate those rules in this file.
+Read `AGENTS.md` first. Use the matching environment profile. Source Map and
+STATUS updates are optional for small isolated tasks and required only when the
+task benefits from extended or long-running workflow support.

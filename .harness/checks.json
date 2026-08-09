@@ -3,36 +3,30 @@
   "checks": [
     {
       "id": "harness-self-test",
-      "description": "Exercise the validator, source-map parsers and path safety on fixtures.",
+      "description": "Exercise the Core Harness validator and environment profiles.",
       "cwd": ".",
       "command": "node scripts/harness/test.mjs",
       "risk": "read-only",
       "timeout_ms": 120000,
-      "required_for": [
-        "harness"
-      ]
+      "required_for": ["harness"]
     },
     {
       "id": "harness-validate",
-      "description": "Validate all Harness subsystems and completion evidence.",
+      "description": "Validate Core Harness policy, state, and registered checks.",
       "cwd": ".",
       "command": "node scripts/harness/check.mjs --strict",
       "risk": "read-only",
       "timeout_ms": 120000,
-      "required_for": [
-        "harness"
-      ]
+      "required_for": ["harness"]
     },
     {
       "id": "source-map-ai",
-      "description": "Build the focused AI code navigation map.",
+      "description": "Optionally build the focused AI code navigation map.",
       "cwd": ".",
       "command": "node scripts/harness/sourcemap.mjs build --profile ai",
       "risk": "generated-write",
       "timeout_ms": 180000,
-      "required_for": [
-        "ai-design-agent"
-      ]
+      "optional_for": ["ai-design-agent", "cross-module-discovery"]
     },
     {
       "id": "repo-format-check",
@@ -41,9 +35,7 @@
       "command": "pnpm run check-fmt",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "cross-module"
-      ]
+      "required_for": ["cross-module"]
     },
     {
       "id": "repo-lint",
@@ -52,9 +44,7 @@
       "command": "pnpm run lint",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "cross-module"
-      ]
+      "required_for": ["cross-module"]
     },
     {
       "id": "backend-ai-tests",
@@ -63,9 +53,7 @@
       "command": "clojure -M:dev:test --focus backend-tests.ai-secrets-test",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "backend-ai"
-      ]
+      "required_for": ["backend-ai"]
     },
     {
       "id": "common-ai-tests",
@@ -74,9 +62,7 @@
       "command": "clojure -M:dev:test --focus common-tests.ai-dsl-test",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "common-ai"
-      ]
+      "required_for": ["common-ai"]
     },
     {
       "id": "frontend-cljs-lint",
@@ -85,9 +71,7 @@
       "command": "pnpm run lint:clj",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "frontend-ai"
-      ]
+      "required_for": ["frontend-ai"]
     },
     {
       "id": "frontend-format-check",
@@ -96,9 +80,7 @@
       "command": "pnpm run check-fmt:clj",
       "risk": "read-only",
       "timeout_ms": 900000,
-      "required_for": [
-        "frontend-ai"
-      ]
+      "required_for": ["frontend-ai"]
     }
   ]
 }

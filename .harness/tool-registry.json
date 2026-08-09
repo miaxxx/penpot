@@ -5,57 +5,32 @@
     {
       "id": "filesystem-read",
       "capability": "read",
-      "allowed": [
-        "repository files",
-        "git metadata",
-        "logs"
-      ],
-      "denied": [
-        "credential stores",
-        "unrequested personal files"
-      ]
+      "allowed": ["repository files", "git metadata", "logs"],
+      "denied": ["credential stores", "unrequested personal files"]
     },
     {
       "id": "repository-search",
       "capability": "search",
-      "allowed": [
-        "source-map query",
-        "text search",
-        "symbol search"
-      ],
+      "allowed": ["text search", "symbol search", "optional source-map query"],
       "denied": []
     },
     {
       "id": "scoped-edit",
       "capability": "write",
-      "allowed": [
-        "active feature scope"
-      ],
-      "denied": [
-        "unrelated modules",
-        "generated vendor files"
-      ]
+      "allowed": ["requested task scope", "active long-task feature scope"],
+      "denied": ["unrelated modules", "generated vendor files"]
     },
     {
       "id": "registered-check",
       "capability": "verify",
-      "allowed": [
-        ".harness/checks.json commands"
-      ],
-      "denied": [
-        "arbitrary shell passed through evidence.mjs"
-      ]
+      "allowed": [".harness/checks.json commands"],
+      "denied": ["arbitrary shell passed through evidence.mjs"]
     },
     {
       "id": "source-map-build",
       "capability": "generated-write",
-      "allowed": [
-        ".harness/generated",
-        "tmp/harness"
-      ],
-      "denied": [
-        "source directories"
-      ]
+      "allowed": [".harness/generated", "tmp/harness"],
+      "denied": ["source directories"]
     },
     {
       "id": "destructive-operations",

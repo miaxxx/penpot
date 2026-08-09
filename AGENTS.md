@@ -1,68 +1,67 @@
 # Penpot Agent Entry
 
-This file is a router, not the project manual. Read only the guidance required
-for the active task, then work through the repository Harness.
+This file is a router, not the project manual. Load only the guidance needed
+for the current task.
 
-## Start every session
+## Start
 
 1. Read `.serena/memories/critical-info.md`.
-2. Identify every affected module and read each `<module>/core` memory.
-3. Follow relevant `mem:` links before editing.
-4. Read `.harness/feature-list.json`, `.harness/PROGRESS.md`, and
-   `.harness/session-handoff.md`.
-5. Run `./init.sh --check` and resolve or record environment failures.
-6. Use `node scripts/harness/sourcemap.mjs query <term>` to locate symbols and
-   dependencies before broad code search when the map exists.
+2. Read the `<module>/core` memories for modules you will change.
+3. Run `./init.sh --check --profile <core|frontend|backend|devenv>`.
+4. For multi-step, cross-module, or resumed work, read
+   `.harness/feature-list.json` and `.harness/STATUS.md`.
+5. Use Source Map only when dependency discovery is difficult or the task spans
+   unfamiliar modules. Normal source search remains the default.
+
+Small isolated fixes do not need state-file updates unless they affect the
+active feature or leave unfinished work.
 
 ## Work loop
 
-`read rules -> initialize -> select one feature -> inspect -> plan -> edit ->
-run registered checks -> record evidence -> update state -> hand off`
+`scope -> inspect -> plan -> edit -> run relevant registered checks -> review`
 
-- Work on one active feature unless ownership is explicitly split.
-- Keep changes inside the feature scope. Record newly discovered work instead
-  of silently expanding the task.
-- Run checks by ID through `node scripts/harness/evidence.mjs <check-id>`.
-- A feature may be `done` only when every acceptance criterion has passing,
-  reproducible evidence.
-- Update `.harness/PROGRESS.md` and `.harness/session-handoff.md` before ending
-  a long-running session.
+For long-running work, append: `record evidence -> update STATUS -> hand off`.
+
+- Stay inside the requested scope. Record follow-up work instead of silently
+  expanding the task.
+- Run reproducible checks by ID with
+  `node scripts/harness/evidence.mjs <check-id>`.
+- Never claim completion from confidence alone.
 
 ## Hard invariants
 
-- Chat history is not project state; repository files are.
-- Confidence is not evidence. Never claim completion without command results.
-- Never run destructive commands or bypass the tool registry without explicit
-  user approval.
-- Never persist raw API keys, authorization headers, access tokens, prompts
-  containing secrets, or provider responses containing credentials.
-- The source map is a derived navigation index, not a second source of truth.
-- Preserve Penpot's native change/undo transaction boundaries.
+- Never run destructive operations without explicit human approval.
+- Never persist raw API keys, authorization headers, access tokens, or secrets.
+- Do not touch unrelated modules or create unrelated formatting diffs.
+- Preserve Penpot native change/undo transaction boundaries.
 - AI Design Agent changes remain feature-flagged, validate Document/Patch DSL
   and Canonical Design IR before apply, and keep preview separate from apply.
-- Do not touch unrelated modules. Avoid unrelated formatting diffs.
+- Source Map is optional derived navigation data, never a source of truth.
 
 ## Routing
 
 | Need | Read |
 |---|---|
-| Harness model and file map | `.harness/README.md` |
-| Operational rules | `.harness/RULES.md` |
-| Allowed tools and commands | `.harness/TOOLS.md`, `.harness/tool-registry.json` |
-| Verification and evidence | `.harness/CHECKS.md`, `.harness/checks.json` |
-| Detailed workflow | `docs/harness/workflow.md` |
-| Source-map index | `docs/harness/source-map.md` |
+| Core Harness model | `.harness/README.md` |
+| Operational and safety rules | `.harness/RULES.md` |
+| Current long-task state | `.harness/feature-list.json`, `.harness/STATUS.md` |
+| Registered checks | `.harness/checks.json` |
+| Tool policy | `.harness/tool-registry.json` |
+| Extended Source Map guidance | `docs/harness/source-map.md` |
 | AI Design Agent boundaries | `docs/harness/ai-design-agent.md` |
-| Security and permissions | `docs/harness/security.md` |
-| Module-specific engineering | `.serena/memories/<module>/core.md` |
+| Module engineering | `.serena/memories/<module>/core.md` |
 
 ## Common commands
 
 ```bash
-./init.sh --check
+./init.sh --check --profile core
+./init.sh --check --profile frontend
+./init.sh --check --profile backend
+./init.sh --check --profile devenv
 node scripts/harness/check.mjs --strict
 node scripts/harness/test.mjs
-node scripts/harness/sourcemap.mjs build --profile ai
-node scripts/harness/sourcemap.mjs query <symbol-or-path>
 node scripts/harness/evidence.mjs <check-id>
+# Optional for cross-module discovery:
+node scripts/harness/sourcemap.mjs build --profile ai
+node scripts/harness/sourcemap.mjs query <term>
 ```

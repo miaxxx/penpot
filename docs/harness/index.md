@@ -1,18 +1,8 @@
-# Harness Engineering in Penpot
+# Penpot Harness
 
-Penpot's Harness combines repository instructions, Serena's progressive memory
-graph, a tool permission registry, environment diagnostics, persistent feature
-state, executable verification and a derived source navigation map.
+The default path is the 12-file Core Harness described in `.harness/README.md`.
+It covers routing, long-task state, registered evidence, profile-based environment
+checks, secret protection, and destructive-operation boundaries.
 
-It adapts the five-system Harness model—instructions, tools, environment, state
-and feedback—to a mature Clojure/ClojureScript monorepo rather than replacing
-the existing development workflow.
-
-Start at `AGENTS.md`, then use:
-
-- [Architecture](architecture.md)
-- [Workflow](workflow.md)
-- [Verification](verification.md)
-- [Source map](source-map.md)
-- [AI Design Agent boundaries](ai-design-agent.md)
-- [Security](security.md)
+Extended docs and Source Map are optional. Use them only when a task needs
+cross-module discovery, deeper AI Design Agent constraints, or durable evidence.

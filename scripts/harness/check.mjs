@@ -1,32 +1,20 @@
 import path from "node:path";
 import { REPO_ROOT, exists, isMain, parseArgs, readJson, readText } from "./lib.mjs";
 
-const REQUIRED = [
+export const CORE_REQUIRED = Object.freeze([
   "AGENTS.md",
-  "CLAUDE.md",
   "init.sh",
   ".harness/README.md",
   ".harness/RULES.md",
-  ".harness/TOOLS.md",
-  ".harness/CHECKS.md",
+  ".harness/STATUS.md",
   ".harness/feature-list.json",
-  ".harness/PROGRESS.md",
-  ".harness/session-handoff.md",
   ".harness/checks.json",
   ".harness/tool-registry.json",
-  ".harness/sourcemap.config.json",
-  "docs/harness/index.md",
-  "docs/harness/workflow.md",
-  "docs/harness/verification.md",
-  "docs/harness/source-map.md",
-  "docs/harness/ai-design-agent.md",
-  "docs/harness/security.md",
   "scripts/harness/init.mjs",
   "scripts/harness/check.mjs",
   "scripts/harness/evidence.mjs",
-  "scripts/harness/sourcemap.mjs",
   "scripts/harness/test.mjs",
-];
+]);
 
 const DANGEROUS = [
   /\brm\s+-rf\b/i,
@@ -44,28 +32,26 @@ function issue(list, severity, code, message) {
 export function validateHarness(root = REPO_ROOT, { strict = false } = {}) {
   const issues = [];
 
-  for (const relative of REQUIRED) {
-    if (!exists(root, relative)) issue(issues, "error", "missing-file", relative);
+  for (const relative of CORE_REQUIRED) {
+    if (!exists(root, relative)) issue(issues, "error", "missing-core-file", relative);
   }
-  if (issues.some((item) => item.code === "missing-file")) {
-    return { ok: false, score: 0, issues };
+  if (issues.some((item) => item.code === "missing-core-file")) {
+    return { ok: false, score: 0, required_files: CORE_REQUIRED.length, issues };
   }
 
   const agents = readText(root, "AGENTS.md");
-  if (agents.length > 7000) issue(issues, "error", "agents-too-large", "AGENTS.md must stay a router under 7000 characters.");
+  if (agents.length > 6000) issue(issues, "warning", "agents-large", "AGENTS.md should remain a concise router under 6000 characters.");
   for (const marker of [
     ".serena/memories/critical-info.md",
     ".harness/feature-list.json",
-    ".harness/PROGRESS.md",
-    ".harness/session-handoff.md",
+    ".harness/STATUS.md",
     "scripts/harness/evidence.mjs",
   ]) {
     if (!agents.includes(marker)) issue(issues, "error", "agents-routing", `AGENTS.md does not route to ${marker}.`);
   }
-
-  const claude = readText(root, "CLAUDE.md");
-  if (!claude.includes("AGENTS.md")) issue(issues, "error", "claude-routing", "CLAUDE.md must route to AGENTS.md.");
-  if (claude.length > 1200) issue(issues, "warning", "claude-duplication", "CLAUDE.md should not duplicate the full rules.");
+  if (/Source Map.*(?:must|required|before broad)/i.test(agents)) {
+    issue(issues, "warning", "source-map-mandatory", "Source Map should remain optional guidance.");
+  }
 
   const featureList = readJson(path.join(root, ".harness/feature-list.json"));
   const features = Array.isArray(featureList.features) ? featureList.features : [];
@@ -91,7 +77,7 @@ export function validateHarness(root = REPO_ROOT, { strict = false } = {}) {
       }
     }
   }
-  if (inProgress > 1) issue(issues, "error", "multiple-active", "Only one feature may be in_progress.");
+  if (inProgress > 1) issue(issues, "error", "multiple-active", "Only one feature may be in_progress in this state file.");
   if (featureList.active_feature_id !== null) {
     const active = features.find((item) => item.id === featureList.active_feature_id);
     if (!active) issue(issues, "error", "active-missing", "active_feature_id does not exist.");
@@ -99,7 +85,7 @@ export function validateHarness(root = REPO_ROOT, { strict = false } = {}) {
       issue(issues, "error", "active-status", "active feature must be in_progress or blocked.");
     }
   }
-  if (strict && inProgress === 0 && featureList.active_feature_id !== null) {
+  if (strict && featureList.active_feature_id !== null && inProgress === 0) {
     issue(issues, "error", "strict-active", "Strict mode requires the active feature to be in_progress.");
   }
 
@@ -133,36 +119,39 @@ export function validateHarness(root = REPO_ROOT, { strict = false } = {}) {
     issue(issues, "error", "destructive-policy", "Destructive capability must have no default allow-list.");
   }
 
-  const progress = readText(root, ".harness/PROGRESS.md");
-  for (const heading of ["## Current goal", "## Completed", "## In progress", "## Pending", "## Blockers", "## Verification evidence", "## Next action"]) {
-    if (!progress.includes(heading)) issue(issues, "error", "progress-section", `PROGRESS.md is missing ${heading}.`);
-  }
-  const handoff = readText(root, ".harness/session-handoff.md");
-  for (const heading of ["## Current feature", "## Last known state", "## Resume steps", "## Relevant files", "## Known risks", "## Next command"]) {
-    if (!handoff.includes(heading)) issue(issues, "error", "handoff-section", `session-handoff.md is missing ${heading}.`);
+  const status = readText(root, ".harness/STATUS.md");
+  for (const heading of ["## Current task", "## State", "## Evidence", "## Risks", "## Next step"]) {
+    if (!status.includes(heading)) issue(issues, "error", "status-section", `STATUS.md is missing ${heading}.`);
   }
 
-  const mapConfig = readJson(path.join(root, ".harness/sourcemap.config.json"));
-  if (!mapConfig.profiles?.ai || !mapConfig.output) issue(issues, "error", "map-config", "Source-map config needs output and ai profile.");
-  if ((mapConfig.exclude || []).some((item) => item.includes(".."))) issue(issues, "error", "map-exclude", "Source-map excludes must not traverse parents.");
+  const sourceMapConfig = exists(root, ".harness/sourcemap.config.json");
+  const sourceMapScript = exists(root, "scripts/harness/sourcemap.mjs");
+  if (sourceMapConfig !== sourceMapScript) {
+    issue(issues, "warning", "source-map-pair", "Optional Source Map config and script should be kept together.");
+  }
+  if (sourceMapConfig) {
+    const mapConfig = readJson(path.join(root, ".harness/sourcemap.config.json"));
+    if ((mapConfig.exclude || []).some((item) => item.includes(".."))) {
+      issue(issues, "error", "map-exclude", "Source Map excludes must not traverse parents.");
+    }
+  }
 
   const pkg = readJson(path.join(root, "package.json"));
-  for (const script of ["harness:init", "harness:check", "harness:test", "harness:map", "harness:query", "harness:evidence"]) {
+  for (const script of ["harness:init", "harness:check", "harness:test", "harness:evidence"]) {
     if (!pkg.scripts?.[script]) issue(issues, "error", "package-script", `package.json is missing ${script}.`);
   }
 
   const errors = issues.filter((item) => item.severity === "error").length;
   const warnings = issues.filter((item) => item.severity === "warning").length;
-  const score = Math.max(0, 100 - errors * 15 - warnings * 3);
-  return { ok: errors === 0, score, errors, warnings, issues };
+  const score = Math.max(0, 100 - errors * 15 - warnings * 2);
+  return { ok: errors === 0, score, errors, warnings, required_files: CORE_REQUIRED.length, issues };
 }
 
 function printReport(report) {
   console.log(`Harness score: ${report.score}/100`);
+  console.log(`Required core files: ${report.required_files}`);
   console.log(`Errors: ${report.errors || 0}; warnings: ${report.warnings || 0}`);
-  for (const item of report.issues) {
-    console.log(`${item.severity.toUpperCase()} [${item.code}] ${item.message}`);
-  }
+  for (const item of report.issues) console.log(`${item.severity.toUpperCase()} [${item.code}] ${item.message}`);
   console.log(report.ok ? "HARNESS PASS" : "HARNESS FAIL");
 }
 

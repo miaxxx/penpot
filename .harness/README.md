@@ -1,36 +1,41 @@
 # Penpot Harness
 
-The Harness is the repository control plane around coding agents. It does not
-replace Penpot architecture, Serena memories, tests, or human review. It makes
-their use explicit and repeatable.
+The Harness is a lightweight repository control layer for reliable agent work.
+It does not replace Penpot architecture, Serena memories, tests, or review.
 
-## Five systems
+## Core Harness
 
-1. **Instructions** — `AGENTS.md`, `CLAUDE.md`, `.serena/memories/**`,
-   `.harness/RULES.md`.
-2. **Tools** — `.harness/tool-registry.json` and registered command execution.
-3. **Environment** — `init.sh` and `scripts/harness/init.mjs`.
-4. **State** — `feature-list.json`, `PROGRESS.md`, `session-handoff.md`.
-5. **Feedback** — `checks.json`, evidence records, CI, tests, lint, format and
-   source-map validation.
+The validator requires 12 files:
 
-## Canonical locations
+1. `AGENTS.md`
+2. `init.sh`
+3. `.harness/README.md`
+4. `.harness/RULES.md`
+5. `.harness/STATUS.md`
+6. `.harness/feature-list.json`
+7. `.harness/checks.json`
+8. `.harness/tool-registry.json`
+9. `scripts/harness/init.mjs`
+10. `scripts/harness/check.mjs`
+11. `scripts/harness/evidence.mjs`
+12. `scripts/harness/test.mjs`
 
-- `AGENTS.md`: short startup router and invariants.
-- `.serena/memories/`: durable Penpot module knowledge.
-- `.harness/`: active operational state and machine-readable policy.
-- `docs/harness/`: explanations and maintenance guidance.
-- `scripts/harness/`: dependency-free executable control plane.
-- `.harness/generated/`: derived source-map artifacts; never source of truth.
-- `.harness/evidence/`: optional committed evidence for important milestones.
+Core rules are scope control, explicit verification, persistent state for long
+work, secret protection, and human approval for destructive operations.
 
-## Session protocol
+## Extended Harness
 
-```text
-read -> initialize -> choose one feature -> inspect/map -> plan -> edit
-     -> verify by check ID -> record result -> update state -> handoff
-```
+`CLAUDE.md`, `docs/harness/`, `.harness/CHECKS.md`, `.harness/TOOLS.md`, Source
+Map configuration/scripts, generated maps, and committed evidence are optional.
+Use them when the task benefits from deeper explanation, cross-module discovery,
+or durable audit evidence.
 
-Start with `./init.sh --check`. The command is deliberately non-destructive: it
-inspects versions, repository state, active work, registered tools and Harness
-integrity. It never installs dependencies, starts services, or deletes data.
+## Task sizing
+
+- **Small task:** initialize the relevant profile, edit, verify, review. No
+  mandatory STATUS update.
+- **Long or resumed task:** read/update `feature-list.json` and `STATUS.md`, then
+  leave a concrete next step.
+
+`./init.sh` is non-destructive. It checks the selected profile and never
+installs dependencies, starts services, or deletes data.
