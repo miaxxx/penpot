@@ -1,0 +1,35 @@
+name: Harness self-check
+
+on:
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - ".harness/**"
+      - "docs/harness/**"
+      - "scripts/harness/**"
+      - ".github/workflows/harness-self-check.yml"
+  push:
+    paths:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - ".harness/**"
+      - "docs/harness/**"
+      - "scripts/harness/**"
+      - ".github/workflows/harness-self-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - name: Run Harness fast checks
+        run: bash scripts/harness/check.sh fast

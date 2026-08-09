@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "repository": "miaxxx/penpot",
+  "branch": "agent/penpot-ai-harness",
+  "objective": "Implement a repository-driven Harness Engineering system with source-output-evidence traceability.",
+  "updatedAt": "2026-08-09T07:24:03Z",
+  "current": {
+    "id": "repository-harness-v1",
+    "status": "completed",
+    "sources": [
+      "User-provided Harness Engineering principles",
+      "walkinglabs/learn-harness-engineering (MIT conceptual reference)",
+      "Penpot AGENTS.md and Serena memory graph",
+      "Penpot .nvmrc, frontend/package.json, and manage.sh"
+    ],
+    "outputs": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".harness/",
+      "docs/harness/",
+      "scripts/harness/",
+      ".github/workflows/harness-self-check.yml"
+    ],
+    "verification": [
+      "./scripts/harness/check.sh fast"
+    ],
+    "next": "Run HARNESS_BASE_REF=develop ./scripts/harness/check.sh changed inside the Penpot development environment."
+  },
+  "events": [
+    {
+      "timestamp": "2026-08-09T07:24:03Z",
+      "task": "repository-harness-v1",
+      "status": "completed",
+      "summary": "Created repository-level instructions, tools, environment, state, feedback, and source-map validation layers.",
+      "commands": [
+        "./scripts/harness/check.sh fast"
+      ],
+      "result": "Passed in an isolated Harness fixture environment; full Penpot build remains a separate release check.",
+      "next": "Run changed checks in the development environment."
+    }
+  ]
+}

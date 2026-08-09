@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repository": "miaxxx/penpot",
+  "branch": "agent/penpot-ai-harness",
+  "runtime": {
+    "node": {
+      "versionFile": ".nvmrc",
+      "expected": "v22.22.0",
+      "requiredForFastChecks": true
+    },
+    "packageManager": {
+      "name": "pnpm",
+      "expected": "11.7.0",
+      "manifest": "frontend/package.json"
+    },
+    "shell": {
+      "name": "bash",
+      "requiredForFastChecks": true
+    }
+  },
+  "projectTools": {
+    "git": {
+      "required": true
+    },
+    "clojure": {
+      "requiredForFrontendBuild": true
+    },
+    "cljfmt": {
+      "requiredForFrontendChecks": true
+    },
+    "clj-kondo": {
+      "requiredForFrontendChecks": true
+    },
+    "docker": {
+      "recommendedForReproducibleDevenv": true
+    }
+  },
+  "entrypoints": {
+    "initialize": "./scripts/harness/init.sh",
+    "fastCheck": "./scripts/harness/check.sh fast",
+    "changedCheck": "./scripts/harness/check.sh changed",
+    "fullCheck": "./scripts/harness/check.sh full",
+    "devenv": "./manage.sh run-devenv"
+  }
+}

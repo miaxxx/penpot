@@ -1,5 +1,50 @@
 # AI AGENT GUIDE
 
+## Repository Harness (mandatory execution contract)
+
+The Serena memory graph remains the architecture source of truth. The repository
+Harness controls **how work is initialized, executed, verified, recorded, and
+handed off**.
+
+Before changing files:
+
+1. Run `./scripts/harness/init.sh`.
+2. Read `.harness/GUIDE.md`, `.harness/RULES.md`, and `.harness/PROGRESS.md`.
+3. Read `critical-info` and every affected module's `<module>/core` memory.
+4. Select validation commands from `.harness/CHECKS.md`.
+5. Record the task in `.harness/task-map.json` when it spans sessions or agents.
+
+Required loop:
+
+`read rules -> initialize -> execute -> verify -> record -> hand off`
+
+Non-negotiable:
+
+- Never announce completion from confidence alone. Completion requires command
+  output or another reproducible artifact.
+- Keep durable state in the repository, not only in chat context.
+- Treat source maps and agent trace maps as integrity artifacts. Broken or
+  untraceable mappings fail validation.
+- Do not silently skip failed checks. Record the failure, blocker, and next
+  executable action.
+- Keep `AGENTS.md` short enough to route work; put detail in `.harness/` and
+  `docs/harness/`.
+
+Quick commands:
+
+```sh
+./scripts/harness/init.sh
+./scripts/harness/check.sh fast
+./scripts/harness/check.sh changed
+./scripts/harness/check.sh full
+node scripts/harness/sourcemap-check.mjs --allow-empty frontend/target
+```
+
+See `CLAUDE.md` for Claude Code compatibility and `docs/harness/README.md` for
+the complete system map.
+
+---
+
 ## CRITICAL: Read module memories BEFORE writing any code
 
 Do this **before planning, before coding, before touching any file**:

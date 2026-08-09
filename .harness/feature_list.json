@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "harnessVersion": "1.0.0",
+  "repository": "miaxxx/penpot",
+  "branch": "agent/penpot-ai-harness",
+  "systems": [
+    {
+      "id": "instructions",
+      "status": "implemented",
+      "artifacts": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".harness/RULES.md"
+      ]
+    },
+    {
+      "id": "tools",
+      "status": "implemented",
+      "artifacts": [
+        ".harness/TOOLS.md",
+        "scripts/harness/"
+      ]
+    },
+    {
+      "id": "environment",
+      "status": "implemented",
+      "artifacts": [
+        ".harness/environment.json",
+        "scripts/harness/init.sh"
+      ]
+    },
+    {
+      "id": "state",
+      "status": "implemented",
+      "artifacts": [
+        ".harness/PROGRESS.md",
+        ".harness/task-map.json",
+        ".harness/session-handoff.md"
+      ]
+    },
+    {
+      "id": "feedback",
+      "status": "implemented",
+      "artifacts": [
+        ".harness/CHECKS.md",
+        "scripts/harness/check.sh",
+        ".github/workflows/harness-self-check.yml"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "progressive-agent-router",
+      "status": "implemented",
+      "evidence": [
+        "AGENTS.md",
+        "CLAUDE.md"
+      ],
+      "validation": "./scripts/harness/check.sh fast"
+    },
+    {
+      "id": "non-destructive-environment-init",
+      "status": "implemented",
+      "evidence": [
+        "scripts/harness/init.sh",
+        ".harness/environment.json"
+      ],
+      "validation": "./scripts/harness/init.sh"
+    },
+    {
+      "id": "durable-task-state",
+      "status": "implemented",
+      "evidence": [
+        ".harness/task-map.json",
+        "scripts/harness/record.mjs"
+      ],
+      "validation": "node scripts/harness/record.mjs --help"
+    },
+    {
+      "id": "executable-verification",
+      "status": "implemented",
+      "evidence": [
+        "scripts/harness/check.sh",
+        ".harness/CHECKS.md"
+      ],
+      "validation": "./scripts/harness/check.sh fast"
+    },
+    {
+      "id": "sourcemap-integrity",
+      "status": "implemented",
+      "evidence": [
+        "scripts/harness/sourcemap-check.mjs",
+        "docs/harness/source-map-traceability.md"
+      ],
+      "validation": "./scripts/harness/check.sh fast"
+    }
+  ]
+}
