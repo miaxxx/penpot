@@ -16,7 +16,7 @@
 (def terminal-statuses #{:applied :discarded :conflicted :expired})
 
 (def allowed-transitions
-  {:validated #{:previewed :discarded :expired}
+  {:validated #{:validated :previewed :discarded :expired}
    :previewed #{:previewed :applying :discarded :conflicted :expired}
    :applying #{:applied :conflicted :expired}
    :conflicted #{:discarded}
@@ -206,14 +206,16 @@
 
 (defn request-apply!
   [cfg profile-id id]
-  (let [proposal (get-owned! cfg profile-id id :access :edit)]
-    (when-not (= :previewed (:status proposal))
+  (let [proposal (get-owned! cfg profile-id id :access :edit)
+        status (:status proposal)]
+    (when-not (contains? #{:validated :previewed} status)
       (ex/raise :type :validation
-                :code :proposal-preview-required
-                :hint "proposal must be previewed in Penpot before apply"))
-    (assoc (public-view proposal)
-           :requires-ui-confirmation true
-           :status :previewed)))
+                :code :proposal-not-applicable
+                :hint "only validated or previewed proposals can request UI application"))
+    (-> (transition-row! cfg profile-id id status
+                         {:apply-requested-at (ct/now)})
+        public-view
+        (assoc :requires-ui-confirmation true))))
 
 (defn begin-apply!
   [cfg profile-id id]
