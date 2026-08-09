@@ -13,7 +13,6 @@
    [app.common.ai.tools :as tools]
    [app.common.ai.validation :as validation]
    [app.common.exceptions :as ex]
-   [app.common.time :as ct]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]))
@@ -24,14 +23,10 @@
     :proposal.undo-ready
     :registry.references-resolved})
 
-(defn- decode-json
-  [value]
-  (if (db/pgobject? value)
-    (db/decode-json-pgobject value)
-    value))
+(defn- decode-json [value]
+  (if (db/pgobject? value) (db/decode-json-pgobject value) value))
 
-(defn decode-result
-  [row]
+(defn decode-result [row]
   (when row
     (-> row
         (update :status keyword)
@@ -40,37 +35,30 @@
         (assoc :check-result-id (:id row))
         (dissoc :profile-id))))
 
-(defn- run-owned!
-  [cfg profile-id run-id]
+(defn- run-owned! [cfg profile-id run-id]
   (let [row (db/get cfg :ai-harness-run {:id run-id :profile-id profile-id})]
     (when-not row
       (ex/raise :type :not-found :code :object-not-found :hint "not found"))
     (sessions/get-owned! cfg profile-id (:session-id row) :access :edit)
     (sessions/decode-run row)))
 
-(defn list-definitions
-  []
-  {:version rh/version
-   :checks rh/default-checks})
+(defn list-definitions []
+  {:version rh/version :checks rh/default-checks})
 
-(defn list-results!
-  [cfg profile-id run-id]
+(defn list-results! [cfg profile-id run-id]
   (run-owned! cfg profile-id run-id)
   (mapv decode-result
-        (db/exec!
-         cfg
-         ["SELECT * FROM ai_harness_check_result
-            WHERE run_id = ? AND profile_id = ?
-            ORDER BY created_at, check_id"
-          run-id profile-id])))
+        (db/exec! cfg
+                  ["SELECT * FROM ai_harness_check_result
+                     WHERE run_id = ? AND profile_id = ?
+                     ORDER BY created_at, check_id"
+                   run-id profile-id])))
 
-(defn- proposal-for-run!
-  [cfg profile-id run]
+(defn- proposal-for-run! [cfg profile-id run]
   (when-let [proposal-id (:proposal-id run)]
     (proposals/get! cfg profile-id proposal-id)))
 
-(defn- server-evaluate
-  [cfg profile-id run check-id evidence]
+(defn- server-evaluate [cfg profile-id run check-id evidence]
   (let [session (sessions/get-owned! cfg profile-id (:session-id run))
         proposal (delay (proposal-for-run! cfg profile-id run))]
     (case check-id
@@ -90,7 +78,8 @@
 
       :context.within-budget
       (let [report (:context-report run)
-            used (or (:used report) (:used-characters report) 0)
+            used (or (:used report) (:used-characters report)
+                     (:characters-used report) 0)
             budget (or (:budget report) (:context-budget report) 0)]
         {:passed? (and (pos? budget) (<= used budget))
          :evidence {:used used :budget budget}})
@@ -102,8 +91,7 @@
                        :patch (validation/validate-patch (:dsl proposal))
                        {:valid? false :errors [{:code :invalid-dsl-type}]})]
           {:passed? (:valid? result)
-           :evidence {:dsl-type (:dsl-type proposal)
-                      :errors (:errors result)}})
+           :evidence {:dsl-type (:dsl-type proposal) :errors (:errors result)}})
         {:passed? false :evidence {:reason :missing-proposal}})
 
       :proposal.scope-valid
@@ -121,11 +109,19 @@
          :evidence {:mcp-tool-count (count mcp-tools)
                     :commit-tool-ids (mapv :id commit-tools)}})
 
+      :proposal.transaction-applied
+      (if-let [proposal @proposal]
+        {:passed? (and (= :applied (:status proposal))
+                       (some? (:transaction-id proposal)))
+         :evidence {:proposal-id (:proposal-id proposal)
+                    :status (:status proposal)
+                    :transaction-id (:transaction-id proposal)}}
+        {:passed? false :evidence {:reason :missing-proposal}})
+
       (if (contains? client-evidence-checks check-id)
         {:passed? (true? (:passed? evidence))
          :evidence (dissoc evidence :passed?)}
-        {:passed? false
-         :evidence {:reason :unsupported-check}}))))
+        {:passed? false :evidence {:reason :unsupported-check}}))))
 
 (defn- upsert-result!
   [cfg profile-id run-id check-id required? status evidence duration-ms]
@@ -136,8 +132,7 @@
             duration_ms, completed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, clock_timestamp())
          ON CONFLICT (run_id, check_id)
-         DO UPDATE SET
-           status = EXCLUDED.status,
+         DO UPDATE SET status = EXCLUDED.status,
            required = EXCLUDED.required,
            evidence = EXCLUDED.evidence,
            duration_ms = EXCLUDED.duration_ms,
@@ -154,13 +149,11 @@
         check-id (rh/normalize-check-id check-id)
         definition (rh/check-definition check-id)]
     (when-not definition
-      (ex/raise :type :validation
-                :code :unknown-ai-harness-check
+      (ex/raise :type :validation :code :unknown-ai-harness-check
                 :hint "Harness check is not registered"))
     (when (and (contains? client-evidence-checks check-id)
                (not= :internal (keyword transport)))
-      (ex/raise :type :restriction
-                :code :untrusted-ai-harness-evidence
+      (ex/raise :type :restriction :code :untrusted-ai-harness-evidence
                 :hint "Native compiler evidence must come from the internal Penpot workspace"))
     (let [started (System/nanoTime)
           evaluated (server-evaluate cfg profile-id run check-id evidence)
@@ -169,17 +162,14 @@
       (upsert-result! cfg profile-id run-id check-id (:required definition)
                       status (:evidence evaluated) duration-ms))))
 
-(defn run-core-checks!
-  [cfg profile-id run-id evidence]
-  (mapv
-   (fn [{:keys [id]}]
-     (run-check! cfg profile-id run-id
-                 {:check-id id
-                  :evidence (get evidence id {})
-                  :transport :internal}))
-   rh/default-checks))
+(defn run-core-checks! [cfg profile-id run-id evidence]
+  (mapv (fn [{:keys [id]}]
+          (run-check! cfg profile-id run-id
+                      {:check-id id
+                       :evidence (get evidence id {})
+                       :transport :internal}))
+        rh/default-checks))
 
-(defn completion-report!
-  [cfg profile-id run-id]
+(defn completion-report! [cfg profile-id run-id]
   (rh/completion-report rh/default-checks
                         (list-results! cfg profile-id run-id)))
