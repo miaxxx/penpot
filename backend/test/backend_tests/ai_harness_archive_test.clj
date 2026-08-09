@@ -53,6 +53,19 @@
     (t/is (= "Layout Skill" (get-in package [:manifest :name])))
     (t/is (= 2 (count (:files package))))))
 
+(t/deftest finds-skill-files-inside-an-outer-folder
+  (let [package
+        (archive/parse-package
+         {:filename "nested.zip"
+          :encoding "base64"
+          :content
+          (zip-base64
+           {"my-skill/SKILL.md" "Nested skill instructions."
+            "my-skill/manifest.json"
+            "{\"name\":\"Nested Skill\",\"version\":\"1.0\"}"})})]
+    (t/is (= "Nested Skill" (get-in package [:manifest :name])))
+    (t/is (= "Nested skill instructions." (:instructions package)))))
+
 (t/deftest rejects-path-traversal
   (t/is
    (thrown?
