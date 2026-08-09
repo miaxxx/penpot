@@ -12,6 +12,7 @@
         ids (into #{} (map :id) tools)]
     (t/is (contains? ids :proposal.create-document))
     (t/is (contains? ids :proposal.create-patch))
+    (t/is (contains? ids :proposal.list))
     (t/is (contains? ids :proposal.request-apply))
     (t/is (not (contains? ids :proposal.begin-apply)))
     (t/is (not (contains? ids :proposal.complete-apply)))
@@ -21,7 +22,8 @@
   (let [tools (:tools (mcp/list-tools))
         patch-tool (first (filter #(= :proposal.create-patch (:id %)) tools))]
     (t/is (= :proposal-id (:result patch-tool)))
-    (t/is (= :required (:confirmation patch-tool)))))
+    (t/is (= :required (:confirmation patch-tool)))
+    (t/is (= "object" (get-in patch-tool [:inputSchema :type])))))
 
 (t/deftest mcp-apply-is-only-a-ui-confirmation-request
   (let [tools (:tools (mcp/list-tools))
