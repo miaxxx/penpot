@@ -12,6 +12,7 @@
    [app.common.exceptions :as ex]
    [app.common.schema :as sm]
    [app.config :as cf]
+   [app.loggers.audit :as-alias audit]
    [app.rpc.doc :as-alias doc]
    [app.util.services :as sv]))
 
@@ -24,6 +25,10 @@
 
 (sv/defmethod ::test-ai-provider
   {::doc/added "2.10"
+   ;; Raw credentials are request-local. This endpoint is intentionally omitted
+   ;; from generic RPC auditing because audit props are normally derived from
+   ;; all decoded request params.
+   ::audit/skip true
    ::sm/params schema:test-ai-provider}
   [cfg {:keys [provider] :as params}]
   (when (contains? cf/flags :disable-ai-design-agent)
