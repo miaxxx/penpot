@@ -263,6 +263,17 @@
       (when callback
         (callback payload)))))
 
+(defn- conflict-stream
+  [proposal-id apply-token page-id affected-ids on-conflict error]
+  (let [payload {:proposal-id proposal-id
+                 :apply-token apply-token
+                 :page-id page-id
+                 :affected-ids affected-ids
+                 :error error}]
+    (rx/from
+     [(ptk/data-event :ai/proposal-conflict payload)
+      (callback-event on-conflict payload)])))
+
 (defn apply-proposal
   "The only native AI write gateway. Revalidates current objects, submits one
   Penpot Undo transaction and reports completion/conflict to the unified
@@ -273,32 +284,35 @@
   (ptk/reify ::apply-proposal
     ptk/WatchEvent
     (watch [it state _]
-      (let [current (dsh/lookup-page-objects state page-id)]
+      (let [current (dsh/lookup-page-objects state page-id)
+            affected-ids (:affected-ids proposal)]
         (if (proposal-stale? current proposal)
-          (let [payload {:proposal-id proposal-id
-                         :apply-token apply-token
-                         :page-id page-id
-                         :affected-ids (:affected-ids proposal)
-                         :error {:code :stale-canvas
-                                 :message "Canvas changed after proposal preview."}}]
-            (rx/from
-             [(ptk/data-event :ai/proposal-conflict payload)
-              (callback-event on-conflict payload)]))
-          (let [{:keys [changes]}
-                (prepare-object-diff it page-id current target-objects)
-                transaction-id (uuid/next)
-                payload {:proposal-id proposal-id
-                         :apply-token apply-token
-                         :transaction-id (str transaction-id)
-                         :page-id page-id
-                         :affected-ids (:affected-ids proposal)}
-                events (cond-> [(dwu/start-undo-transaction transaction-id)
-                                (dch/commit-changes changes)]
-                         (seq parent-ids)
-                         (conj (ptk/data-event :layout/update {:ids parent-ids}))
+          (conflict-stream
+           proposal-id apply-token page-id affected-ids on-conflict
+           {:code :stale-canvas
+            :message "Canvas changed after proposal preview."})
+          (try
+            (let [{:keys [changes]}
+                  (prepare-object-diff it page-id current target-objects)
+                  transaction-id (uuid/next)
+                  payload {:proposal-id proposal-id
+                           :apply-token apply-token
+                           :transaction-id (str transaction-id)
+                           :page-id page-id
+                           :affected-ids affected-ids}
+                  events (cond-> [(dwu/start-undo-transaction transaction-id)
+                                  (dch/commit-changes changes)]
+                           (seq parent-ids)
+                           (conj (ptk/data-event :layout/update {:ids parent-ids}))
 
-                         :always
-                         (conj (dwu/commit-undo-transaction transaction-id)
-                               (ptk/data-event :ai/proposal-applied payload)
-                               (callback-event on-applied payload)))]
-            (rx/from events)))))))
+                           :always
+                           (conj (dwu/commit-undo-transaction transaction-id)
+                                 (ptk/data-event :ai/proposal-applied payload)
+                                 (callback-event on-applied payload)))]
+              (rx/from events))
+            (catch :default cause
+              (conflict-stream
+               proposal-id apply-token page-id affected-ids on-conflict
+               {:code :native-change-compilation-failed
+                :message (or (.-message cause)
+                             "Native Penpot Change compilation failed.")}))))))))
