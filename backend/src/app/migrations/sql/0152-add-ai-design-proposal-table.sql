@@ -14,6 +14,7 @@ CREATE TABLE ai_design_proposal (
   preview jsonb,
   error jsonb,
   apply_token uuid,
+  transaction_id text,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   modified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   expires_at timestamptz NOT NULL DEFAULT clock_timestamp() + interval '1 hour',
