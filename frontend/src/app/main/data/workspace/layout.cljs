@@ -173,8 +173,8 @@
    :selected-palette-colorpicker :app.main.data.workspace/selected-palette-colorpicker})
 
 (defn load-layout-state
-  "Given state (the :workspace-global) and update them with the data
-  stored in Storage."
+  "Given state (the :workspace-global) and update it with layout related
+  props that are previously persisted in the Storage."
   [state]
   (reduce (fn [state [key skey]]
             (let [val (get storage/user skey ::none)]
@@ -185,7 +185,8 @@
           layout-state-persistence-mapping))
 
 (defn persist-layout-state!
-  "Given state (the :workspace-global) and persist the data in Storage."
+  "Given state (the :workspace-global) and persists a subset of layout
+  related props to the Storage."
   [state]
   (doseq [[key skey] layout-state-persistence-mapping]
     (let [val (get state key ::does-not-exist)]
