@@ -232,9 +232,16 @@
        :root-id root-id
        :selection-ids (vec selected)})))
 
+(defn- scope-root
+  [scope]
+  (or (:root-id scope) (:rootId scope)
+      (get scope "root-id") (get scope "rootId")))
+
 (defn- target-parent
-  [selected objects]
-  (let [selected-id (first selected)
+  [proposal-scope selected objects snapshot]
+  (let [resolved-root (some->> (scope-root proposal-scope)
+                               (ai-canvas/resolve-id snapshot))
+        selected-id (or resolved-root (first selected))
         selected-shape (get objects selected-id)
         parent-id (cond
                     (contains? selected-shape :shapes) selected-id
@@ -304,36 +311,53 @@
          (fn [response]
            (let [dsl-type (as-keyword (:dsl-type response))
                  dsl (:dsl response)
-                 target (target-parent selected objects)
+                 proposal-scope (or (:scope response) scope-map)
+                 proposal-revision (or (:base-revision response) revision)
+                 proposal-snapshot
+                 (ai-canvas/build-snapshot
+                  {:file-id file-id
+                   :page-id page-id
+                   :revision revision
+                   :objects objects
+                   :scope proposal-scope})
+                 target (target-parent proposal-scope selected objects proposal-snapshot)
                  compiled
-                 (case dsl-type
-                   :document
-                   (ai-exec/proposal-from-document
-                    (merge target
-                           {:file-id file-id
-                            :page-id page-id
-                            :revision revision
-                            :objects objects
-                            :scope scope-map
-                            :document dsl
-                            :registry {}}))
-
-                   :patch
-                   (ai-exec/proposal-from-patch
-                    {:file-id file-id
-                     :page-id page-id
-                     :revision revision
-                     :objects objects
-                     :scope scope-map
-                     :patch dsl
-                     :registry {}})
-
+                 (if (not= proposal-revision revision)
                    {:valid? false
-                    :errors [{:code :invalid-dsl-type
-                              :message "Provider returned an unsupported DSL type."}]})
+                    :errors [{:code :base-revision-mismatch
+                              :message "This proposal was created for an older file revision."}]}
+                   (case dsl-type
+                     :document
+                     (ai-exec/proposal-from-document
+                      (merge target
+                             {:file-id file-id
+                              :page-id page-id
+                              :revision revision
+                              :objects objects
+                              :scope proposal-scope
+                              :document dsl
+                              :registry {}}))
+
+                     :patch
+                     (ai-exec/proposal-from-patch
+                      {:file-id file-id
+                       :page-id page-id
+                       :revision revision
+                       :objects objects
+                       :scope proposal-scope
+                       :patch dsl
+                       :registry {}})
+
+                     {:valid? false
+                      :errors [{:code :invalid-dsl-type
+                                :message "Provider returned an unsupported DSL type."}]}))
                  local-proposal (merge response compiled
                                        {:plan (:plan response)
                                         :status :validated})]
+             (when-let [restored-scope (some-> proposal-scope :type as-keyword)]
+               (reset! scope* restored-scope))
+             (when-let [restored-mode (some-> (:mode response) as-keyword)]
+               (reset! mode* restored-mode))
              (if-not (:valid? compiled)
                (do
                  (reset! request-status* :error)
@@ -351,6 +375,19 @@
                                         {:valid? true :status :previewed})))
                        (fn [error]
                          (set-request-error! "Preview persistence failed" error)))))))))
+
+        _
+        (mf/use-effect
+         (mf/deps file-id page-id)
+         (fn []
+           (->> (rp/cmd! :list-ai-design-proposals
+                         {:file-id file-id
+                          :page-id page-id})
+                (rx/subs!
+                 (fn [proposals]
+                   (when (and (nil? @proposal*) (seq proposals))
+                     (on-provider-success (first proposals))))
+                 (fn [_error] nil)))))
 
         on-submit
         (mf/use-fn
