@@ -3,33 +3,25 @@
 ;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns app.rpc.commands.ai
-  "Authenticated AI Design Agent RPC entry points. The first iteration only
-  exposes a provider connection test; generation endpoints will be added once
-  structured response compilation is connected."
+  "AI Design Agent RPC implementation.
+
+  Penpot's RPC registry currently scans an explicit namespace list. The public
+  method is registered from a scanned command namespace until this namespace is
+  added to that list in the dedicated backend-provider PR."
   (:require
    [app.ai.providers.openai-compatible :as openai-compatible]
    [app.ai.providers.protocol :as provider]
    [app.common.exceptions :as ex]
-   [app.common.schema :as sm]
-   [app.config :as cf]
-   [app.loggers.audit :as-alias audit]
-   [app.rpc.doc :as-alias doc]
-   [app.util.services :as sv]))
+   [app.config :as cf]))
 
-(def ^:private schema:test-ai-provider
+(def schema:test-ai-provider
   [:map {:title "test-ai-provider" :closed true}
    [:provider [:enum "openai-compatible" "openai"]]
    [:base-url [:string {:min 8 :max 2048}]]
    [:api-key [:string {:min 1 :max 4096}]]
    [:model [:string {:min 1 :max 256}]]])
 
-(sv/defmethod ::test-ai-provider
-  {::doc/added "2.10"
-   ;; Raw credentials are request-local. This endpoint is intentionally omitted
-   ;; from generic RPC auditing because audit props are normally derived from
-   ;; all decoded request params.
-   ::audit/skip true
-   ::sm/params schema:test-ai-provider}
+(defn test-ai-provider
   [cfg {:keys [provider] :as params}]
   (when (contains? cf/flags :disable-ai-design-agent)
     (ex/raise :type :restriction
