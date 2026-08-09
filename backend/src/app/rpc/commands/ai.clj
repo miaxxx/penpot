@@ -9,6 +9,7 @@
   the authenticated Penpot workspace may begin/complete native apply."
   (:require
    [app.ai.adapters.mcp :as mcp]
+   [app.ai.proposal-queries :as proposal-queries]
    [app.ai.proposals :as proposals]
    [app.ai.providers.openai-compatible :as openai-compatible]
    [app.ai.providers.protocol :as provider]
@@ -52,6 +53,11 @@
    [:scope :map]
    [:plan {:optional true} :map]
    [:dsl :map]])
+
+(def schema:list-proposals
+  [:map {:closed true}
+   [:file-id ::sm/uuid]
+   [:page-id {:optional true} ::sm/uuid]])
 
 (def schema:proposal-id
   [:map {:closed true}
@@ -142,6 +148,10 @@
        (update :mode keyword)
        (update :dsl-type keyword)
        (dissoc ::rpc/profile-id))))
+
+(defn list-ai-design-proposals
+  [cfg {:keys [::rpc/profile-id file-id page-id]}]
+  (proposal-queries/list-active! cfg profile-id file-id page-id))
 
 (defn get-ai-design-proposal
   [cfg {:keys [::rpc/profile-id proposal-id]}]
