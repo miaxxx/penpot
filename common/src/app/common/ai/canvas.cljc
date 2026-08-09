@@ -12,7 +12,7 @@
   (:require
    [clojure.string :as str]))
 
-(def snapshot-version 1)
+(def snapshot-version 2)
 (def default-child-depth 5)
 (def default-parent-depth 2)
 (def default-node-limit 500)
@@ -44,6 +44,24 @@
 
 (def ^:private binding-keys
   [:applied-tokens :plugin-data])
+
+(def ^:private compact-native-excluded-keys
+  #{:id :name :type :x :y :width :height :rotation :flip-x :flip-y
+    :selrect :points :transform :transform-inverse :parent-id :frame-id
+    :shapes :content :position-data :fills :strokes :opacity :blend-mode
+    :r1 :r2 :r3 :r4 :shadow :blur :background-blur :layout
+    :layout-flex-dir :layout-gap-type :layout-gap :layout-align-items
+    :layout-align-content :layout-justify-items :layout-justify-content
+    :layout-wrap-type :layout-padding-type :layout-padding :layout-grid-dir
+    :layout-grid-columns :layout-grid-rows :layout-grid-cells
+    :layout-item-margin :layout-item-margin-type :layout-item-h-sizing
+    :layout-item-v-sizing :layout-item-min-h :layout-item-max-h
+    :layout-item-min-w :layout-item-max-w :layout-item-align-self
+    :layout-item-absolute :layout-item-z-index :component-id :component-file
+    :component-root :main-instance :remote-synced :shape-ref :variant-id
+    :variant-name :variant-properties :touched :constraints-h :constraints-v
+    :fixed-scroll :interactions :exports :grids :blocked :locked :hidden
+    :collapsed :hide-in-viewer :applied-tokens :plugin-data})
 
 (defn- as-keyword
   [value fallback]
@@ -101,6 +119,33 @@
        (str/join "\n")
        not-empty))
 
+(defn- collect-text-runs
+  [value]
+  (cond
+    (map? value)
+    (concat
+     (when (string? (:text value))
+       [(select-keys value
+                     [:text :font-family :font-size :font-style :font-weight
+                      :direction :text-decoration :text-transform
+                      :letter-spacing :line-height :fills
+                      :typography-ref-id :typography-ref-file])])
+     (mapcat collect-text-runs (vals (dissoc value :text))))
+
+    (sequential? value)
+    (mapcat collect-text-runs value)
+
+    :else []))
+
+(defn text-runs
+  "Returns bounded rich-text run metadata so the model can reason about copy
+  and typography without receiving editor-only position caches."
+  [shape]
+  (->> (:content shape)
+       collect-text-runs
+       (take 64)
+       vec))
+
 (defn- select-present
   [shape keys]
   (reduce (fn [result key]
@@ -109,6 +154,16 @@
               result))
           {}
           keys))
+
+(defn- compact-native
+  [shape]
+  (reduce-kv
+   (fn [result key value]
+     (if (contains? compact-native-excluded-keys key)
+       result
+       (assoc result key value)))
+   {}
+   shape))
 
 (defn shape->node
   "Converts one native Penpot shape to a semantic node while retaining the
@@ -123,12 +178,14 @@
    :frame-id (:frame-id shape)
    :children (vec (or (:shapes shape) []))
    :text (plain-text shape)
+   :text-runs (text-runs shape)
    :geometry (select-present shape geometry-keys)
    :layout (select-present shape layout-keys)
    :style (select-present shape style-keys)
    :component (select-present shape component-keys)
    :behavior (select-present shape behavior-keys)
    :bindings (select-present shape binding-keys)
+   :native (compact-native shape)
    :penpot (into {} shape)})
 
 (defn build-index
@@ -184,6 +241,28 @@
                (conj seen parent-id)
                (conj result parent-id))))))
 
+(defn component-root-id
+  "Resolves the nearest component root/main instance for any selected child.
+  Falls back to the highest component-bound ancestor, then to the original id."
+  [objects id]
+  (loop [current-id id
+         seen #{}
+         candidate nil]
+    (let [shape (get objects current-id)
+          component? (or (:component-id shape)
+                         (:component-root shape)
+                         (:main-instance shape))
+          candidate (if component? current-id candidate)
+          parent-id (:parent-id shape)]
+      (cond
+        (nil? shape) candidate
+        (or (:component-root shape) (:main-instance shape)) current-id
+        (nil? parent-id) (or candidate id)
+        (= parent-id current-id) (or candidate id)
+        (contains? seen parent-id) (or candidate id)
+        (nil? (get objects parent-id)) (or candidate id)
+        :else (recur parent-id (conj seen current-id) candidate)))))
+
 (defn integrity-report
   [objects]
   (let [missing-children
@@ -232,18 +311,23 @@
      :errors (vec (concat missing-children missing-parents cycles))}))
 
 (defn scope-ids
-  "Returns Penpot UUIDs readable/writable by a scope. Selection and component
-  scopes include descendants; page scope includes all objects."
+  "Returns Penpot UUIDs readable/writable by a scope. Selection scopes support
+  true multi-selection; component scopes climb from any selected descendant to
+  the nearest native component root."
   [objects snapshot {:keys [type root-id rootId selection-ids selectionIds]}]
   (let [type (as-keyword type :selection)
         root-ref (or root-id rootId)
         selected (or selection-ids selectionIds [])
+        resolved-root (resolve-id snapshot root-ref)
+        resolved-selected (keep #(resolve-id snapshot %) selected)
         roots (case type
                 :page (keys objects)
-                :component [(resolve-id snapshot root-ref)]
-                :selection (if root-ref
-                             [(resolve-id snapshot root-ref)]
-                             (keep #(resolve-id snapshot %) selected))
+                :component (let [source (or resolved-root (first resolved-selected))]
+                             (when source [(component-root-id objects source)]))
+                :selection (->> (concat (when resolved-root [resolved-root])
+                                        resolved-selected)
+                                distinct
+                                vec)
                 [])]
     (if (= type :page)
       (set (keys objects))
@@ -284,8 +368,11 @@
     :style (:style node)
     :component (:component node)
     :behavior (:behavior node)
-    :tokens (get-in node [:bindings :applied-tokens])}
-    (:text node) (assoc :text (:text node))))
+    :tokens (get-in node [:bindings :applied-tokens])
+    :plugin-data (get-in node [:bindings :plugin-data])
+    :native (:native node)}
+    (:text node) (assoc :text (:text node))
+    (seq (:text-runs node)) (assoc :text-runs (:text-runs node))))
 
 (defn compact-context
   "Builds a bounded model-facing context from a local snapshot. Parent context
@@ -313,6 +400,7 @@
       :scope (:scope snapshot)
       :scope-node-count (count (:scope-ids snapshot))
       :truncated? (> (count (:scope-ids snapshot)) node-limit)
+      :duplicate-semantic-ids (mapv str (:duplicate-semantic-ids snapshot))
       :nodes (mapv #(compact-node (get nodes %)) scoped)
       :parents (mapv #(compact-node (get nodes %)) parent-set)
       :integrity (:integrity snapshot)})))
@@ -326,4 +414,5 @@
      :token-bound-count (count (filter #(seq (get-in % [:bindings :applied-tokens])) scope-nodes))
      :interaction-count (reduce + 0 (map #(count (get-in % [:behavior :interactions])) scope-nodes))
      :kinds (frequencies (map :kind scope-nodes))
+     :duplicate-semantic-id-count (count (:duplicate-semantic-ids snapshot))
      :integrity-valid? (get-in snapshot [:integrity :valid?])}))
