@@ -23,189 +23,87 @@
 
 (declare ^:private send-user-feedback!)
 
-;; The main RPC registry scans an explicit namespace list that includes this
-;; namespace. Keep registration shims small and delegate behavior to the AI
-;; modules, which remain transport-independent.
+(defmacro ^:private def-ai-bridge
+  [method schema handler]
+  `(sv/defmethod ~method
+     {::doc/added "2.10"
+      ::audit/skip true
+      ::sm/params ~schema}
+     [cfg# params#]
+     (~handler cfg# params#)))
 
-(sv/defmethod ::test-ai-provider
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:test-ai-provider}
-  [cfg params]
-  (ai/test-ai-provider cfg params))
+(def-ai-bridge ::test-ai-provider
+  ai/schema:test-ai-provider ai/test-ai-provider)
+(def-ai-bridge ::generate-ai-design-proposal
+  ai/schema:generate-ai-design-proposal ai/generate-ai-design-proposal)
+(def-ai-bridge ::create-ai-design-proposal
+  ai/schema:create-ai-design-proposal ai/create-ai-design-proposal)
+(def-ai-bridge ::list-ai-design-proposals
+  ai/schema:list-proposals ai/list-ai-design-proposals)
+(def-ai-bridge ::get-ai-design-proposal
+  ai/schema:proposal-id ai/get-ai-design-proposal)
+(def-ai-bridge ::preview-ai-design-proposal
+  ai/schema:preview-proposal ai/preview-ai-design-proposal)
+(def-ai-bridge ::discard-ai-design-proposal
+  ai/schema:proposal-id ai/discard-ai-design-proposal)
+(def-ai-bridge ::request-ai-design-proposal-apply
+  ai/schema:proposal-id ai/request-ai-design-proposal-apply)
+(def-ai-bridge ::begin-ai-design-proposal-apply
+  ai/schema:proposal-id ai/begin-ai-design-proposal-apply)
+(def-ai-bridge ::complete-ai-design-proposal-apply
+  ai/schema:complete-proposal ai/complete-ai-design-proposal-apply)
+(def-ai-bridge ::conflict-ai-design-proposal
+  ai/schema:conflict-proposal ai/conflict-ai-design-proposal)
+(def-ai-bridge ::list-ai-design-tools
+  [:map {:closed true}] ai/list-ai-design-tools)
+(def-ai-bridge ::list-ai-mcp-tools
+  [:map {:closed true}] ai/list-ai-mcp-tools)
+(def-ai-bridge ::invoke-ai-mcp-tool
+  ai/schema:invoke-mcp-tool ai/invoke-ai-mcp-tool)
 
-(sv/defmethod ::generate-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:generate-ai-design-proposal}
-  [cfg params]
-  (ai/generate-ai-design-proposal cfg params))
+(def-ai-bridge ::get-ai-harness
+  [:map {:closed true}] ai/get-ai-harness)
+(def-ai-bridge ::install-ai-harness-skill
+  ai/schema:install-harness-package ai/install-ai-harness-skill)
+(def-ai-bridge ::list-ai-harness-skills
+  [:map {:closed true}] ai/list-ai-harness-skills)
+(def-ai-bridge ::set-ai-harness-skill-enabled
+  ai/schema:harness-item-enabled ai/set-ai-harness-skill-enabled)
+(def-ai-bridge ::delete-ai-harness-skill
+  ai/schema:harness-item-id ai/delete-ai-harness-skill)
+(def-ai-bridge ::install-ai-harness-plugin
+  ai/schema:install-harness-package ai/install-ai-harness-plugin)
+(def-ai-bridge ::list-ai-harness-plugins
+  [:map {:closed true}] ai/list-ai-harness-plugins)
+(def-ai-bridge ::set-ai-harness-plugin-enabled
+  ai/schema:harness-item-enabled ai/set-ai-harness-plugin-enabled)
+(def-ai-bridge ::delete-ai-harness-plugin
+  ai/schema:harness-item-id ai/delete-ai-harness-plugin)
+(def-ai-bridge ::create-ai-harness-session
+  ai/schema:create-harness-session ai/create-ai-harness-session)
+(def-ai-bridge ::get-ai-harness-session
+  ai/schema:harness-session-id ai/get-ai-harness-session)
+(def-ai-bridge ::list-ai-harness-sessions
+  ai/schema:list-harness-sessions ai/list-ai-harness-sessions)
+(def-ai-bridge ::update-ai-harness-session
+  ai/schema:update-harness-settings ai/update-ai-harness-session)
+(def-ai-bridge ::close-ai-harness-session
+  ai/schema:harness-session-id ai/close-ai-harness-session)
+(def-ai-bridge ::list-ai-harness-runs
+  ai/schema:list-harness-runs ai/list-ai-harness-runs)
 
-(sv/defmethod ::create-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:create-ai-design-proposal}
-  [cfg params]
-  (ai/create-ai-design-proposal cfg params))
-
-(sv/defmethod ::list-ai-design-proposals
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:list-proposals}
-  [cfg params]
-  (ai/list-ai-design-proposals cfg params))
-
-(sv/defmethod ::get-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:proposal-id}
-  [cfg params]
-  (ai/get-ai-design-proposal cfg params))
-
-(sv/defmethod ::preview-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:preview-proposal}
-  [cfg params]
-  (ai/preview-ai-design-proposal cfg params))
-
-(sv/defmethod ::discard-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:proposal-id}
-  [cfg params]
-  (ai/discard-ai-design-proposal cfg params))
-
-(sv/defmethod ::request-ai-design-proposal-apply
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:proposal-id}
-  [cfg params]
-  (ai/request-ai-design-proposal-apply cfg params))
-
-(sv/defmethod ::begin-ai-design-proposal-apply
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:proposal-id}
-  [cfg params]
-  (ai/begin-ai-design-proposal-apply cfg params))
-
-(sv/defmethod ::complete-ai-design-proposal-apply
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:complete-proposal}
-  [cfg params]
-  (ai/complete-ai-design-proposal-apply cfg params))
-
-(sv/defmethod ::conflict-ai-design-proposal
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:conflict-proposal}
-  [cfg params]
-  (ai/conflict-ai-design-proposal cfg params))
-
-(sv/defmethod ::list-ai-design-tools
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params [:map {:closed true}]}
-  [cfg params]
-  (ai/list-ai-design-tools cfg params))
-
-(sv/defmethod ::list-ai-mcp-tools
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params [:map {:closed true}]}
-  [cfg params]
-  (ai/list-ai-mcp-tools cfg params))
-
-(sv/defmethod ::invoke-ai-mcp-tool
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:invoke-mcp-tool}
-  [cfg params]
-  (ai/invoke-ai-mcp-tool cfg params))
-
-(sv/defmethod ::get-ai-harness
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params [:map {:closed true}]}
-  [cfg params]
-  (ai/get-ai-harness cfg params))
-
-(sv/defmethod ::install-ai-harness-skill
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:install-harness-package}
-  [cfg params]
-  (ai/install-ai-harness-skill cfg params))
-
-(sv/defmethod ::list-ai-harness-skills
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params [:map {:closed true}]}
-  [cfg params]
-  (ai/list-ai-harness-skills cfg params))
-
-(sv/defmethod ::set-ai-harness-skill-enabled
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-item-enabled}
-  [cfg params]
-  (ai/set-ai-harness-skill-enabled cfg params))
-
-(sv/defmethod ::delete-ai-harness-skill
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-item-id}
-  [cfg params]
-  (ai/delete-ai-harness-skill cfg params))
-
-(sv/defmethod ::install-ai-harness-plugin
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:install-harness-package}
-  [cfg params]
-  (ai/install-ai-harness-plugin cfg params))
-
-(sv/defmethod ::list-ai-harness-plugins
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params [:map {:closed true}]}
-  [cfg params]
-  (ai/list-ai-harness-plugins cfg params))
-
-(sv/defmethod ::set-ai-harness-plugin-enabled
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-item-enabled}
-  [cfg params]
-  (ai/set-ai-harness-plugin-enabled cfg params))
-
-(sv/defmethod ::delete-ai-harness-plugin
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-item-id}
-  [cfg params]
-  (ai/delete-ai-harness-plugin cfg params))
-
-(sv/defmethod ::create-ai-harness-session
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:create-harness-session}
-  [cfg params]
-  (ai/create-ai-harness-session cfg params))
-
-(sv/defmethod ::get-ai-harness-session
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-session-id}
-  [cfg params]
-  (ai/get-ai-harness-session cfg params))
-
-(sv/defmethod ::list-ai-harness-sessions
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:list-harness-sessions}
-  [cfg params]
-  (ai/list-ai-harness-sessions cfg params))
-
-(sv/defmethod ::update-ai-harness-session
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:update-harness-settings}
-  [cfg params]
-  (ai/update-ai-harness-session cfg params))
-
-(sv/defmethod ::close-ai-harness-session
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:harness-session-id}
-  [cfg params]
-  (ai/close-ai-harness-session cfg params))
-
-(sv/defmethod ::list-ai-harness-runs
-  {::doc/added "2.10" ::audit/skip true
-   ::sm/params ai/schema:list-harness-runs}
-  [cfg params]
-  (ai/list-ai-harness-runs cfg params))
-
+;; Backward-compatible command name. Every normal AI turn now enters the
+;; Repository Harness before provider execution.
 (sv/defmethod ::run-ai-harness-turn
-  {::doc/added "2.10" ::audit/skip true
+  {::doc/added "2.10"
+   ::audit/skip true
    ::sm/params ai/schema:run-harness-turn}
   [cfg params]
-  (ai/run-ai-harness-turn cfg params))
+  (harness-repository/invoke
+   cfg
+   {::rpc/profile-id (::rpc/profile-id params)
+    :action "turn.run"
+    :arguments (dissoc params ::rpc/profile-id)}))
 
 (sv/defmethod ::invoke-ai-harness-repository
   {::doc/added "2.10"
