@@ -169,10 +169,22 @@
              header)]
         {:manifest manifest :body body}))))
 
+(defn- file-by-name
+  [files candidate]
+  (or (when-let [content (get files candidate)]
+        [candidate content])
+      (->> files
+           (filter (fn [[path _]]
+                     (= (str/lower-case candidate)
+                        (str/lower-case
+                         (last (str/split path #"/"))))))
+           (sort-by (comp count first))
+           first)))
+
 (defn- json-file
   [files & paths]
-  (some (fn [path]
-          (when-let [content (get files path)]
+  (some (fn [candidate]
+          (when-let [[path content] (file-by-name files candidate)]
             (try
               (json/decode content :key-fn keyword)
               (catch Throwable _
@@ -195,8 +207,8 @@
 
           :else
           {"SKILL.md" (String. bytes StandardCharsets/UTF_8)})
-        markdown (or (get files "SKILL.md")
-                     (get files "skill.md")
+        markdown (or (second (file-by-name files "SKILL.md"))
+                     (second (file-by-name files "skill.md"))
                      "")
         frontmatter (parse-frontmatter markdown)
         manifest (merge (:manifest frontmatter)
@@ -213,7 +225,7 @@
             (get manifest "prompt")
             (if (#{"SKILL.md" "skill.md"} entrypoint)
               (:body frontmatter)
-              (or (get files entrypoint)
+              (or (second (file-by-name files entrypoint))
                   (:body frontmatter)
                   markdown)))]
     {:filename filename
