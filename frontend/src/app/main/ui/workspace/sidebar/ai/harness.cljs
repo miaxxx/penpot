@@ -190,7 +190,9 @@
 
     (mf/use-effect
      (mf/deps)
-     (fn [] (load!)))
+     (fn []
+       (load!)
+       nil))
 
     [:div {:class (stl/css :harness-shell)}
      [:button {:type "button"
