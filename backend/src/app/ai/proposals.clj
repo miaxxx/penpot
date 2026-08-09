@@ -139,6 +139,7 @@
   (policy/ensure-edit! cfg profile-id file-id)
   (policy/ensure-revision! cfg file-id base-revision)
   (let [origin (policy/ensure-origin! origin)
+        mode (policy/ensure-mode! mode)
         scope (policy/ensure-scope! scope)
         dsl-type (keyword dsl-type)
         _ (validate-dsl! dsl-type dsl)
@@ -150,7 +151,7 @@
                          :file-id file-id
                          :page-id page-id
                          :origin (name origin)
-                         :mode (name (keyword mode))
+                         :mode (name mode)
                          :dsl-type (name dsl-type)
                          :status "validated"
                          :base-revision base-revision
