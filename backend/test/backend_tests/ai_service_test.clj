@@ -14,6 +14,15 @@
 (def invalid-json
   "{\"plan\":{\"title\":\"Broken\",\"steps\":[]},\"dslType\":\"document\",\"dsl\":{\"dslVersion\":\"1.0\"}}")
 
+(def escalated-page-patch-json
+  "{\"plan\":{\"title\":\"Edit selection\",\"steps\":[\"Change fill\"]},\"dslType\":\"patch\",\"dsl\":{\"dslVersion\":\"1.0\",\"baseRevision\":7,\"scope\":{\"type\":\"page\"},\"operations\":[{\"op\":\"set\",\"nodeId\":\"card-1\",\"path\":\"style.fill\",\"value\":\"#0066ff\"}]}}")
+
+(def valid-selection-patch-json
+  "{\"plan\":{\"title\":\"Edit selection\",\"steps\":[\"Change fill\"]},\"dslType\":\"patch\",\"dsl\":{\"dslVersion\":\"1.0\",\"baseRevision\":7,\"scope\":{\"type\":\"selection\",\"rootId\":\"card-1\"},\"operations\":[{\"op\":\"set\",\"nodeId\":\"card-1\",\"path\":\"style.fill\",\"value\":\"#0066ff\"}]}}")
+
+(def wrong-revision-patch-json
+  "{\"plan\":{\"title\":\"Edit selection\",\"steps\":[\"Change fill\"]},\"dslType\":\"patch\",\"dsl\":{\"dslVersion\":\"1.0\",\"baseRevision\":99,\"scope\":{\"type\":\"selection\",\"rootId\":\"card-1\"},\"operations\":[{\"op\":\"set\",\"nodeId\":\"card-1\",\"path\":\"style.fill\",\"value\":\"#0066ff\"}]}}")
+
 (defn- fake-provider
   [responses]
   (let [responses (atom responses)]
@@ -33,7 +42,19 @@
    :mode :generate
    :scope :page
    :prompt "Create cards"
-   :context {:nodes []}})
+   :context {:revision 0
+             :scope {:type :page}
+             :nodes []}})
+
+(def selection-request
+  (assoc request
+         :mode :modify
+         :scope :selection
+         :prompt "Make the selected card blue"
+         :context {:revision 7
+                   :scope {:type :selection
+                           :rootId "card-1"}
+                   :nodes [{:id "card-1"}]}))
 
 (t/deftest accepts-schema-valid-provider-output
   (let [result (service/generate-proposal!
@@ -51,3 +72,24 @@
                 request)]
     (t/is (:valid? result))
     (t/is (:repaired? result))))
+
+(t/deftest repairs-model-scope-escalation
+  (let [result (service/generate-proposal!
+                (fake-provider [escalated-page-patch-json
+                                valid-selection-patch-json])
+                {}
+                selection-request)]
+    (t/is (:valid? result))
+    (t/is (:repaired? result))
+    (t/is (= "selection" (get-in result [:dsl :scope :type])))
+    (t/is (= "card-1" (get-in result [:dsl :scope :rootId])))))
+
+(t/deftest repairs-base-revision-mismatch
+  (let [result (service/generate-proposal!
+                (fake-provider [wrong-revision-patch-json
+                                valid-selection-patch-json])
+                {}
+                selection-request)]
+    (t/is (:valid? result))
+    (t/is (:repaired? result))
+    (t/is (= 7 (get-in result [:dsl :baseRevision])))))
