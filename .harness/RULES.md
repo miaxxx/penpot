@@ -2,42 +2,37 @@
 
 ## Scope
 
-- Keep at most one `in_progress` feature unless `feature-list.json` contains
-  explicit, non-overlapping ownership.
-- Do not rewrite acceptance criteria to make unfinished work appear complete.
-- Record discoveries as planned work or blockers before expanding scope.
+- Prefer one active long-running feature per worktree or agent session.
+- Do not rewrite acceptance criteria to hide unfinished work.
+- Record discovered follow-up work before expanding scope.
+- Small isolated tasks may bypass feature-state updates when they do not affect
+  active long-running work.
 
 ## State
 
-- `feature-list.json` is the machine-readable plan.
-- `PROGRESS.md` is the current human-readable execution record.
-- `session-handoff.md` is the restart path for the next session.
-- Update state after meaningful milestones and before ending a long session.
-- Chat summaries may supplement these files but never replace them.
+- `feature-list.json` is the machine-readable long-task plan.
+- `STATUS.md` combines progress, handoff, risks, evidence, and next action.
+- Update STATUS after meaningful long-task milestones and before pausing
+  unfinished work. Do not maintain duplicate progress/handoff files.
 
 ## Verification
 
-- Use check IDs from `.harness/checks.json`.
-- Run checks with `node scripts/harness/evidence.mjs <check-id>`.
-- `done` requires passing evidence for all acceptance criteria.
-- A skipped, unavailable or timed-out check is not a pass.
-- Record the exact command, working directory, result and relevant failure.
+- Prefer check IDs from `.harness/checks.json` for reproducible evidence.
+- A skipped, unavailable, or timed-out check is not a pass.
+- Use the smallest relevant check set; repository-wide checks are not mandatory
+  for every isolated change.
 
 ## Safety
 
-- Commands marked `destructive` are never executed by the Harness.
-- Commands outside the registry require explicit human approval.
-- Do not persist secrets in state, evidence, source maps, logs or diffs.
-- Generated source maps must sanitize traversal paths and ignore vendored/build
-  directories.
-- Preview and apply are separate operations for AI-generated Penpot changes.
+- Destructive commands remain human-gated.
+- The evidence runner rejects destructive risk and denied command patterns.
+- Do not persist secrets in state, evidence, maps, logs, or diffs.
+- Commands outside the evidence registry may still be used for normal
+  development, but they do not count as recorded completion evidence.
+- Preview and apply remain separate for AI-generated Penpot changes.
 
 ## Completion
 
-A feature is complete only when:
-
-1. Acceptance criteria are satisfied.
-2. Required checks pass.
-3. Diff and scope are reviewed.
-4. State and handoff files are current.
-5. Remaining risks are explicit.
+A task is complete when target behavior is implemented, relevant checks pass,
+the diff stays in scope, and remaining risks are explicit. Long-running tasks
+also require current STATUS and feature state.

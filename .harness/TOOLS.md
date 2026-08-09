@@ -1,30 +1,18 @@
 # Tool System
 
-The tool registry separates capability from permission. Agents should prefer
-the narrowest tool that can answer the question.
+The registry describes repository policy; the evidence runner enforces the
+registered verification boundary. It does not attempt to replace the host
+agent runtime's shell permission system.
 
-## Classes
+Capability classes remain: `read`, `search`, `write`, `verify`,
+`generated-write`, and `destructive`. Destructive operations stay denied by
+default.
 
-- `read`: inspect files, git metadata, generated maps and logs.
-- `search`: query text or the repository source map.
-- `write`: edit files inside the active feature scope.
-- `verify`: run a registered, reproducible check.
-- `generated-write`: write only under `.harness/generated/` or `tmp/harness/`.
-- `destructive`: denied unless a human explicitly performs or authorizes it.
-
-`node scripts/harness/evidence.mjs <check-id>` executes only commands registered
-in `.harness/checks.json`. The script does not accept arbitrary shell text.
-
-## Source-map-first navigation
-
-Use the generated code map to narrow the search:
+Source Map is an optional extended tool for unfamiliar or cross-module work:
 
 ```bash
 node scripts/harness/sourcemap.mjs build --profile ai
-node scripts/harness/sourcemap.mjs query app.common.ai
-node scripts/harness/sourcemap.mjs query preview
+node scripts/harness/sourcemap.mjs query <term>
 ```
 
-The map extracts Clojure namespaces/defs, JS/TS imports/exports, Rust items and
-embedded source-map metadata. Parsing is intentionally heuristic and must be
-confirmed against source before edits.
+Use ordinary source/symbol search first for routine changes.
