@@ -23,9 +23,8 @@
 (declare ^:private send-user-feedback!)
 
 ;; The main RPC registry currently scans an explicit namespace list that already
-;; includes this namespace. Keep the registration shims small and delegate all
-;; provider behavior to app.rpc.commands.ai. They can move unchanged when the AI
-;; namespace receives its own scanner entry.
+;; includes this namespace. Keep these registration shims small and delegate all
+;; behavior to app.rpc.commands.ai.
 (sv/defmethod ::test-ai-provider
   {::doc/added "2.10"
    ::audit/skip true
@@ -35,12 +34,87 @@
 
 (sv/defmethod ::generate-ai-design-proposal
   {::doc/added "2.10"
-   ;; Provider credentials and scoped design context must never become generic
-   ;; RPC audit properties.
    ::audit/skip true
    ::sm/params ai/schema:generate-ai-design-proposal}
   [cfg params]
   (ai/generate-ai-design-proposal cfg params))
+
+(sv/defmethod ::create-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:create-ai-design-proposal}
+  [cfg params]
+  (ai/create-ai-design-proposal cfg params))
+
+(sv/defmethod ::get-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:proposal-id}
+  [cfg params]
+  (ai/get-ai-design-proposal cfg params))
+
+(sv/defmethod ::preview-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:preview-proposal}
+  [cfg params]
+  (ai/preview-ai-design-proposal cfg params))
+
+(sv/defmethod ::discard-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:proposal-id}
+  [cfg params]
+  (ai/discard-ai-design-proposal cfg params))
+
+(sv/defmethod ::request-ai-design-proposal-apply
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:proposal-id}
+  [cfg params]
+  (ai/request-ai-design-proposal-apply cfg params))
+
+(sv/defmethod ::begin-ai-design-proposal-apply
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:proposal-id}
+  [cfg params]
+  (ai/begin-ai-design-proposal-apply cfg params))
+
+(sv/defmethod ::complete-ai-design-proposal-apply
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:complete-proposal}
+  [cfg params]
+  (ai/complete-ai-design-proposal-apply cfg params))
+
+(sv/defmethod ::conflict-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:conflict-proposal}
+  [cfg params]
+  (ai/conflict-ai-design-proposal cfg params))
+
+(sv/defmethod ::list-ai-design-tools
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params [:map {:closed true}]}
+  [cfg params]
+  (ai/list-ai-design-tools cfg params))
+
+(sv/defmethod ::list-ai-mcp-tools
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params [:map {:closed true}]}
+  [cfg params]
+  (ai/list-ai-mcp-tools cfg params))
+
+(sv/defmethod ::invoke-ai-mcp-tool
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:invoke-mcp-tool}
+  [cfg params]
+  (ai/invoke-ai-mcp-tool cfg params))
 
 (def ^:private schema:send-user-feedback
   [:map {:title "send-user-feedback"}
@@ -76,11 +150,10 @@
 
     (eml/send! {::eml/conn pool
                 ::eml/factory eml/user-feedback
-                :to       destination
+                :to destination
                 :reply-to (:email profile)
-                :email    (:email profile)
+                :email (:email profile)
                 :attachments attachments
-
                 :feedback-subject (:subject params)
                 :feedback-type (:type params "not-specified")
                 :feedback-content (:content params)
