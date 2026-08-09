@@ -14,7 +14,8 @@
    [app.ai.proposals :as proposals]
    [app.common.ai.tools :as tools]
    [app.common.ai.validation :as validation]
-   [app.common.exceptions :as ex]))
+   [app.common.exceptions :as ex]
+   [app.common.uuid :as uuid]))
 
 (def transport :mcp)
 
@@ -24,6 +25,23 @@
           (when (contains? value key)
             (get value key)))
         keys))
+
+(defn- coerce-uuid!
+  [value field required?]
+  (cond
+    (uuid? value) value
+    (string? value)
+    (or (uuid/parse* value)
+        (ex/raise :type :validation
+                  :code :invalid-ai-tool-uuid
+                  :hint "MCP tool UUID argument is invalid"
+                  :field field))
+    (and (nil? value) (not required?)) nil
+    :else
+    (ex/raise :type :validation
+              :code :missing-ai-tool-uuid
+              :hint "MCP tool UUID argument is required"
+              :field field)))
 
 (defn- ensure-tool!
   [tool-id]
@@ -62,7 +80,7 @@
      :_meta
      {:registryVersion (:version tool)
       :access (name (:access tool))
-      :capability (name (:capability tool))
+      :capability (str (:capability tool))
       :confirmation (name (:confirmation tool))
       :result (name (:result tool))}}))
 
@@ -84,15 +102,25 @@
 
 (defn- proposal-id
   [arguments]
-  (getv arguments :proposal-id :proposalId "proposalId" "proposal-id"))
+  (coerce-uuid!
+   (getv arguments :proposal-id :proposalId "proposalId" "proposal-id")
+   :proposal-id
+   true))
 
 (defn- file-id
   [arguments]
-  (getv arguments :file-id :fileId "fileId" "file-id"))
+  (coerce-uuid!
+   (getv arguments :file-id :fileId "fileId" "file-id")
+   :file-id
+   true))
 
 (defn- page-id
-  [arguments]
-  (getv arguments :page-id :pageId "pageId" "page-id"))
+  ([arguments] (page-id arguments false))
+  ([arguments required?]
+   (coerce-uuid!
+    (getv arguments :page-id :pageId "pageId" "page-id")
+    :page-id
+    required?)))
 
 (defn- validate-dsl
   [arguments]
@@ -109,7 +137,7 @@
 (defn- canonical-proposal-arguments
   [arguments]
   {:file-id (file-id arguments)
-   :page-id (page-id arguments)
+   :page-id (page-id arguments true)
    :base-revision (getv arguments :base-revision :baseRevision
                         "baseRevision" "base-revision")
    :mode (getv arguments :mode "mode")
