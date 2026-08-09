@@ -7,12 +7,35 @@
 
   Internal AI, RPC, MCP and future plugins advertise the same tools, while
   policy controls which transports may invoke each operation. Native canvas
-  commit is intentionally internal-only and always requires Penpot UI
-  confirmation."
-  (:require
-   [clojure.set :as set]))
+  commit is internal-only and always requires Penpot UI confirmation.")
 
 (def registry-version "1.0")
+
+(def empty-input-schema
+  {:type "object"
+   :properties {}
+   :additionalProperties false})
+
+(def proposal-id-input-schema
+  {:type "object"
+   :properties
+   {"proposalId" {:type "string" :format "uuid"}}
+   :required ["proposalId"]
+   :additionalProperties false})
+
+(def proposal-input-schema
+  {:type "object"
+   :properties
+   {"fileId" {:type "string" :format "uuid"}
+    "pageId" {:type "string" :format "uuid"}
+    "baseRevision" {:type "integer" :minimum 0}
+    "mode" {:type "string"
+            :enum ["generate" "modify" "refactor" "adapt"]}
+    "scope" {:type "object"}
+    "plan" {:type "object"}
+    "dsl" {:type "object"}}
+   :required ["fileId" "pageId" "baseRevision" "mode" "scope" "dsl"]
+   :additionalProperties false})
 
 (def registry
   {:tools.list
@@ -23,7 +46,8 @@
     :capability :tools/read
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :tool-list}
+    :result :tool-list
+    :input-schema empty-input-schema}
 
    :canvas.summary
    {:id :canvas.summary
@@ -33,7 +57,8 @@
     :capability :canvas/read
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :canvas-summary}
+    :result :canvas-summary
+    :input-schema empty-input-schema}
 
    :canvas.read
    {:id :canvas.read
@@ -43,7 +68,13 @@
     :capability :canvas/read
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :canvas-context}
+    :result :canvas-context
+    :input-schema
+    {:type "object"
+     :properties
+     {"depth" {:type "integer" :minimum 0 :maximum 20}
+      "limit" {:type "integer" :minimum 1 :maximum 500}}
+     :additionalProperties false}}
 
    :dsl.validate
    {:id :dsl.validate
@@ -53,7 +84,14 @@
     :capability :dsl/validate
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :validation-report}
+    :result :validation-report
+    :input-schema
+    {:type "object"
+     :properties
+     {"dslType" {:type "string" :enum ["document" "patch"]}
+      "dsl" {:type "object"}}
+     :required ["dslType" "dsl"]
+     :additionalProperties false}}
 
    :proposal.create-document
    {:id :proposal.create-document
@@ -63,7 +101,8 @@
     :capability :proposal/create
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :required
-    :result :proposal-id}
+    :result :proposal-id
+    :input-schema proposal-input-schema}
 
    :proposal.create-patch
    {:id :proposal.create-patch
@@ -73,7 +112,8 @@
     :capability :proposal/create
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :required
-    :result :proposal-id}
+    :result :proposal-id
+    :input-schema proposal-input-schema}
 
    :proposal.get
    {:id :proposal.get
@@ -83,7 +123,8 @@
     :capability :proposal/read
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :proposal}
+    :result :proposal
+    :input-schema proposal-id-input-schema}
 
    :proposal.preview
    {:id :proposal.preview
@@ -93,7 +134,14 @@
     :capability :proposal/preview
     :transports #{:internal :rpc :plugin}
     :confirmation :none
-    :result :proposal}
+    :result :proposal
+    :input-schema
+    {:type "object"
+     :properties
+     {"proposalId" {:type "string" :format "uuid"}
+      "preview" {:type "object"}}
+     :required ["proposalId" "preview"]
+     :additionalProperties false}}
 
    :proposal.discard
    {:id :proposal.discard
@@ -103,7 +151,8 @@
     :capability :proposal/discard
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :none
-    :result :proposal}
+    :result :proposal
+    :input-schema proposal-id-input-schema}
 
    :proposal.request-apply
    {:id :proposal.request-apply
@@ -113,7 +162,8 @@
     :capability :proposal/request-apply
     :transports #{:internal :rpc :mcp :plugin}
     :confirmation :penpot-ui
-    :result :proposal-id}
+    :result :proposal-id
+    :input-schema proposal-id-input-schema}
 
    :proposal.begin-apply
    {:id :proposal.begin-apply
@@ -123,7 +173,8 @@
     :capability :proposal/apply
     :transports #{:internal :rpc}
     :confirmation :penpot-ui
-    :result :apply-token}
+    :result :apply-token
+    :input-schema proposal-id-input-schema}
 
    :proposal.complete-apply
    {:id :proposal.complete-apply
@@ -133,7 +184,15 @@
     :capability :proposal/apply
     :transports #{:internal :rpc}
     :confirmation :penpot-ui
-    :result :proposal}
+    :result :proposal
+    :input-schema
+    {:type "object"
+     :properties
+     {"proposalId" {:type "string" :format "uuid"}
+      "applyToken" {:type "string" :format "uuid"}
+      "transactionId" {:type "string"}}
+     :required ["proposalId" "applyToken" "transactionId"]
+     :additionalProperties false}}
 
    :proposal.conflict
    {:id :proposal.conflict
@@ -143,7 +202,15 @@
     :capability :proposal/apply
     :transports #{:internal :rpc}
     :confirmation :penpot-ui
-    :result :proposal}
+    :result :proposal
+    :input-schema
+    {:type "object"
+     :properties
+     {"proposalId" {:type "string" :format "uuid"}
+      "applyToken" {:type "string" :format "uuid"}
+      "error" {:type "object"}}
+     :required ["proposalId" "applyToken" "error"]
+     :additionalProperties false}}
 
    :native.commit
    {:id :native.commit
@@ -153,7 +220,8 @@
     :capability :canvas/commit
     :transports #{:internal}
     :confirmation :penpot-ui
-    :result :transaction-id}})
+    :result :transaction-id
+    :input-schema empty-input-schema}})
 
 (defn get-tool
   [tool-id]
@@ -183,8 +251,3 @@
 (defn capabilities
   [transport]
   (into #{} (map :capability) (list-tools transport)))
-
-(defn transport-intersection
-  [& transports]
-  (apply set/intersection
-         (map (comp set list-tools) transports)))
