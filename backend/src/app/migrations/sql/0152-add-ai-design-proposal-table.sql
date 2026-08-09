@@ -18,6 +18,7 @@ CREATE TABLE ai_design_proposal (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   modified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   expires_at timestamptz NOT NULL DEFAULT clock_timestamp() + interval '1 hour',
+  apply_requested_at timestamptz,
   apply_started_at timestamptz,
   applied_at timestamptz,
   discarded_at timestamptz,
