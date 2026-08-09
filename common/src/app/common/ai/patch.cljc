@@ -10,6 +10,7 @@
   The frontend native-change adapter is the only layer allowed to commit."
   (:require
    [app.common.ai.canvas :as canvas]
+   [clojure.set :as set]
    [clojure.string :as str]))
 
 (def max-patch-operations 200)
@@ -56,7 +57,7 @@
 (defn- normalize-keyword
   [value]
   (cond
-    (keyword? value) value
+    (keyword? value) (normalize-keyword (name value))
     (string? value) (-> value
                         (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
                         str/lower-case
@@ -67,10 +68,11 @@
   [operation]
   (reduce-kv
    (fn [result key value]
-     (assoc result (normalize-keyword key)
-            (if (= (normalize-keyword key) :op)
-              (normalize-keyword value)
-              value)))
+     (let [key (normalize-keyword key)]
+       (assoc result key
+              (if (= key :op)
+                (normalize-keyword value)
+                value))))
    {}
    operation))
 
@@ -197,7 +199,9 @@
     :ai/layout-width (dissoc shape :layout-item-h-sizing)
     :ai/layout-height (dissoc shape :layout-item-v-sizing)
     :ai/visible (dissoc shape :hidden)
-    (update-in shape (butlast path) dissoc (last path))))
+    (if (= 1 (count path))
+      (dissoc shape (first path))
+      (update-in shape (butlast path) dissoc (last path)))))
 
 (defn- apply-set
   [state snapshot scope-ids operation operation-index unset?]
@@ -265,7 +269,8 @@
                      {:parent-id (:parent-id operation)}))
 
       :else
-      (let [objects (cond-> objects
+      (let [new-frame-id (child-frame-id objects parent-id)
+            objects (cond-> objects
                       (get objects old-parent-id)
                       (update old-parent-id remove-child id)
 
@@ -275,7 +280,7 @@
                       :always
                       (update id assoc
                               :parent-id parent-id
-                              :frame-id (child-frame-id objects parent-id)))]
+                              :frame-id new-frame-id))]
         (-> state
             (assoc :objects objects)
             (update :moved conj id)
@@ -303,13 +308,14 @@
       (let [ids (canvas/descendant-ids objects id)
             id-set (set ids)
             parent-id (:parent-id (get objects id))
+            parent-exists? (contains? objects parent-id)
             objects (cond-> (apply dissoc objects ids)
-                      (get objects parent-id)
+                      parent-exists?
                       (update parent-id remove-child id))]
         (-> state
             (assoc :objects objects)
             (update :removed into id-set)
-            (update :modified conj parent-id))))))
+            (cond-> parent-exists? (update :modified conj parent-id)))))))
 
 (declare apply-operation)
 
@@ -345,16 +351,16 @@
   (->> (concat (keys before) (keys after))
        set
        (filter #(not= (get before %) (get after %)))
-       sort
+       (sort-by str)
        vec))
 
 (defn diff-objects
   [before after]
   (let [before-ids (set (keys before))
         after-ids (set (keys after))
-        created (clojure.set/difference after-ids before-ids)
-        removed (clojure.set/difference before-ids after-ids)
-        common (clojure.set/intersection before-ids after-ids)
+        created (set/difference after-ids before-ids)
+        removed (set/difference before-ids after-ids)
+        common (set/intersection before-ids after-ids)
         modified (into {}
                        (keep (fn [id]
                                (let [attrs (changed-attributes (get before id) (get after id))]
