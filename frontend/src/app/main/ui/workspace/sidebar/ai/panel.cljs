@@ -39,6 +39,13 @@
   (let [number (js/parseInt value 10)]
     (if (js/isNaN number) fallback number)))
 
+(defn- as-keyword
+  [value]
+  (cond
+    (keyword? value) value
+    (string? value) (keyword value)
+    :else nil))
+
 (mf/defc choice-row*
   {::mf/private true}
   [{:keys [label options value on-change]}]
@@ -167,15 +174,18 @@
 
          nil)])))
 
-(defn- render-errors
-  [errors]
+(mf/defc render-errors*
+  {::mf/private true}
+  [{:keys [errors]}]
   (when (seq errors)
     [:div {:class (stl/css :status-message :status-warning)}
      [:strong "Proposal rejected"]
      [:ul {:class (stl/css :plan-list)}
       (for [[index error] (map-indexed vector errors)]
         [:li {:key index}
-         (or (:message error) (name (:code error)))])]]))
+         (or (:message error)
+             (some-> (:code error) name)
+             "Unknown validation error")])]]))
 
 (mf/defc plan-card*
   {::mf/private true}
@@ -203,7 +213,7 @@
          [:div {:class (stl/css :proposal-note)}
           (str (count (:warnings proposal)) " compatibility warning(s).")])
 
-       [:> render-errors {:errors (:errors proposal)}]
+       [:> render-errors* {:errors (:errors proposal)}]
 
        [:div {:class (stl/css :proposal-note)}
         (if (:valid? proposal)
@@ -296,7 +306,7 @@
         on-provider-success
         (mf/use-fn
          (fn [response]
-           (let [dsl-type (keyword (name (:dsl-type response)))
+           (let [dsl-type (as-keyword (:dsl-type response))
                  dsl (:dsl response)
                  target (target-parent selected objects)
                  compiled
@@ -318,6 +328,7 @@
                      :page-id page-id
                      :revision 0
                      :objects objects
+                     :scope scope-map
                      :patch dsl
                      :registry {}})
 
