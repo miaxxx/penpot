@@ -18,14 +18,12 @@
   [:selected-skills :coordinator-plan :context-report :trace :result
    :progress :blockers :handoff :completion])
 
-(defn- decode-json
-  [value]
-  (if (db/pgobject? value)
-    (db/decode-json-pgobject value)
-    value))
+(def terminal-statuses #{:completed :failed :cancelled})
 
-(defn decode-run
-  [row]
+(defn- decode-json [value]
+  (if (db/pgobject? value) (db/decode-json-pgobject value) value))
+
+(defn decode-run [row]
   (when row
     (-> (reduce (fn [row key] (update row key decode-json)) row json-columns)
         (update :input-mode keyword)
@@ -41,12 +39,10 @@
     (sessions/get-owned! cfg profile-id (:session-id row) :access access)
     row))
 
-(defn get!
-  [cfg profile-id run-id]
+(defn get! [cfg profile-id run-id]
   (decode-run (get-owned! cfg profile-id run-id)))
 
-(defn- bullets
-  [items empty-text]
+(defn- bullets [items empty-text]
   (if (seq items)
     (str/join "\n" (map #(str "- " %) items))
     (str "- " empty-text)))
@@ -80,73 +76,81 @@
        "## Blockers\n" (bullets blockers "None") "\n\n"
        "## Next action\n" (or next-action "")))
 
-(defn attach-workspace!
-  [cfg profile-id run-id workspace-id goal]
-  (get-owned! cfg profile-id run-id :access :edit)
-  (artifacts/get-owned! cfg profile-id workspace-id :access :edit)
-  (-> (db/update! cfg :ai-harness-run
-                  {:workspace-id workspace-id
-                   :goal (str (or goal ""))
-                   :progress (db/json {:completed [] :remaining []})
-                   :blockers (db/json [])
-                   :next-action "Inspect environment and create a Proposal."
-                   :modified-at (ct/now)}
-                  {:id run-id :profile-id profile-id}
-                  {::db/return-keys true})
-      decode-run))
+(defn- ensure-mutable! [run]
+  (when (contains? terminal-statuses (:status run))
+    (ex/raise :type :validation
+              :code :ai-harness-run-terminal
+              :hint "A terminal Harness run cannot be modified"))
+  run)
+
+(defn attach-workspace! [cfg profile-id run-id workspace-id goal]
+  (let [run (decode-run (get-owned! cfg profile-id run-id :access :edit))]
+    (ensure-mutable! run)
+    (artifacts/get-owned! cfg profile-id workspace-id :access :edit)
+    (-> (db/update! cfg :ai-harness-run
+                    {:workspace-id workspace-id
+                     :goal (str (or goal ""))
+                     :progress (db/json {:completed [] :remaining []})
+                     :blockers (db/json [])
+                     :next-action "Inspect environment and create a Proposal."
+                     :modified-at (ct/now)}
+                    {:id run-id :profile-id profile-id}
+                    {::db/return-keys true})
+        decode-run)))
 
 (defn update-progress!
   [cfg profile-id run-id
    {:keys [goal completed remaining blockers next-action status]}]
-  (let [run (decode-run (get-owned! cfg profile-id run-id :access :edit))
-        status (keyword (or status (:status run)))
-        _ (when-not (contains? rh/run-statuses status)
-            (ex/raise :type :validation
-                      :code :invalid-ai-harness-run-status
-                      :hint "Harness run status is invalid"))
-        progress {:completed (vec (or completed
-                                      (get-in run [:progress :completed]) []))
-                  :remaining (vec (or remaining
-                                      (get-in run [:progress :remaining]) []))}
-        blockers (vec (or blockers (:blockers run) []))
-        updated
-        (-> (db/update! cfg :ai-harness-run
-                        {:goal (str (or goal (:goal run) ""))
-                         :progress (db/json progress)
-                         :blockers (db/json blockers)
-                         :next-action (str (or next-action (:next-action run) ""))
-                         :status (name status)
-                         :modified-at (ct/now)}
-                        {:id run-id :profile-id profile-id}
-                        {::db/return-keys true})
-            decode-run)
-        verification (checks/completion-report! cfg profile-id run-id)]
-    (when-let [workspace-id (:workspace-id updated)]
-      (artifacts/upsert-artifact!
-       cfg profile-id workspace-id
-       {:path "PROGRESS.md"
-        :kind :progress
-        :required true
-        :read-order 70
-        :content (progress-markdown updated verification)}))
-    (assoc updated :verification verification)))
+  (let [run (-> (get-owned! cfg profile-id run-id :access :edit)
+                decode-run
+                ensure-mutable!)
+        status (keyword (or status (:status run)))]
+    (when-not (contains? rh/run-statuses status)
+      (ex/raise :type :validation
+                :code :invalid-ai-harness-run-status
+                :hint "Harness run status is invalid"))
+    (when (= :completed status)
+      (ex/raise :type :restriction
+                :code :ai-harness-completion-gate-required
+                :hint "Use complete! so required verification evidence is enforced"))
+    (let [progress {:completed (vec (or completed
+                                        (get-in run [:progress :completed]) []))
+                    :remaining (vec (or remaining
+                                        (get-in run [:progress :remaining]) []))}
+          blockers (vec (or blockers (:blockers run) []))
+          updated
+          (-> (db/update! cfg :ai-harness-run
+                          {:goal (str (or goal (:goal run) ""))
+                           :progress (db/json progress)
+                           :blockers (db/json blockers)
+                           :next-action (str (or next-action (:next-action run) ""))
+                           :status (name status)
+                           :modified-at (ct/now)}
+                          {:id run-id :profile-id profile-id}
+                          {::db/return-keys true})
+              decode-run)
+          verification (checks/completion-report! cfg profile-id run-id)]
+      (when-let [workspace-id (:workspace-id updated)]
+        (artifacts/upsert-artifact!
+         cfg profile-id workspace-id
+         {:path "PROGRESS.md"
+          :kind :progress
+          :required true
+          :read-order 70
+          :content (progress-markdown updated verification)}))
+      (assoc updated :verification verification))))
 
-(defn pause!
-  [cfg profile-id run-id next-action]
+(defn pause! [cfg profile-id run-id next-action]
   (update-progress! cfg profile-id run-id
-                    {:status :paused
-                     :next-action next-action}))
+                    {:status :paused :next-action next-action}))
 
-(defn block!
-  [cfg profile-id run-id blockers next-action]
+(defn block! [cfg profile-id run-id blockers next-action]
   (update-progress! cfg profile-id run-id
-                    {:status :blocked
-                     :blockers blockers
-                     :next-action next-action}))
+                    {:status :blocked :blockers blockers :next-action next-action}))
 
-(defn resume!
-  [cfg profile-id run-id]
+(defn resume! [cfg profile-id run-id]
   (let [run (get! cfg profile-id run-id)]
+    (ensure-mutable! run)
     (when-not (contains? #{:paused :blocked :proposal-created :verifying}
                          (:status run))
       (ex/raise :type :validation
@@ -162,10 +166,8 @@
         (rh/handoff-state
          {:goal (:goal run)
           :status (or (:status state) (:status run))
-          :completed (or (:completed state)
-                         (get-in run [:progress :completed]))
-          :remaining (or (:remaining state)
-                         (get-in run [:progress :remaining]))
+          :completed (or (:completed state) (get-in run [:progress :completed]))
+          :remaining (or (:remaining state) (get-in run [:progress :remaining]))
           :blockers (or (:blockers state) (:blockers run))
           :verification verification
           :next-action (or next-action (:next-action run))})
@@ -187,9 +189,8 @@
         :content (handoff-markdown updated verification)}))
     (assoc updated :verification verification)))
 
-(defn complete!
-  [cfg profile-id run-id]
-  (let [run (get! cfg profile-id run-id)
+(defn complete! [cfg profile-id run-id]
+  (let [run (-> (get! cfg profile-id run-id) ensure-mutable!)
         verification (checks/completion-report! cfg profile-id run-id)]
     (when (seq (:blockers run))
       (ex/raise :type :validation
@@ -201,19 +202,23 @@
                 :code :ai-harness-verification-incomplete
                 :hint "Harness run cannot complete without passing evidence"
                 :verification verification))
-    (let [completion
-          {:completed-at (ct/now)
-           :verification verification
-           :proposal-id (:proposal-id run)}
+    (let [completion {:completed-at (ct/now)
+                      :verification verification
+                      :proposal-id (:proposal-id run)}
           updated
           (-> (db/update! cfg :ai-harness-run
                           {:status "completed"
                            :completion (db/json completion)
                            :completed-at (ct/now)
                            :modified-at (ct/now)}
-                          {:id run-id :profile-id profile-id}
+                          {:id run-id :profile-id profile-id
+                           :status (name (:status run))}
                           {::db/return-keys true})
               decode-run)]
+      (when-not updated
+        (ex/raise :type :validation
+                  :code :ai-harness-run-transition-conflict
+                  :hint "Harness run changed while completing"))
       (create-handoff!
        cfg profile-id run-id
        {:status :completed
@@ -222,8 +227,7 @@
         :next-action "Review the applied Penpot transaction and start a new scoped run."})
       (assoc updated :verification verification))))
 
-(defn latest-for-workspace!
-  [cfg profile-id workspace-id]
+(defn latest-for-workspace! [cfg profile-id workspace-id]
   (artifacts/get-owned! cfg profile-id workspace-id)
   (some->
    (db/exec-one!
