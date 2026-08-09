@@ -42,18 +42,39 @@ componentInstance, slot, variant and sectionHeading.
 Supported patch operations: create, insert, set, unset, move, remove, duplicate,
 replace, bindToken, setVariant, replaceComponent and batch.
 
-Useful semantic paths include name, geometry.x, geometry.y, geometry.width,
-geometry.height, geometry.rotation, style.fill, style.stroke,
-style.strokeWidth, style.opacity, style.radius, layout.type, layout.direction,
-layout.gap, layout.padding, layout.align, layout.justify, layout.width,
-layout.height, visible, locked, hidden, interactions and tokens. Advanced native
-properties may use penpot.<attribute> but identity/tree properties id, type,
-parent-id, frame-id and shapes must only be changed through explicit operations.
+Useful semantic paths include name, text, geometry.x, geometry.y,
+geometry.width, geometry.height, geometry.rotation, style.fill, style.stroke,
+style.strokeWidth, style.opacity, style.radius, style.shadow, layout.type,
+layout.direction, layout.gap, layout.padding, layout.align, layout.justify,
+layout.width, layout.height, visible, locked, hidden, interactions and tokens.
+Advanced native properties may use penpot.<attribute> but identity/tree
+properties id, type, parent-id, frame-id and shapes must only be changed through
+explicit operations.
 
-Only reference components present in the supplied registry/context. Never invent
-a component, token, node id or parent id. Stay inside the declared scope. Do not
-return JavaScript, Clojure, executable expressions, network instructions,
-filesystem instructions, plugin calls or direct canvas commit commands.")
+Use set with path=text to replace copy on an existing Penpot text shape. The
+compiler preserves the existing rich-text hierarchy and run styling. Do not use
+text on non-text shapes.
+
+Use bindToken with a semantic path such as style.fill, style.stroke,
+style.radius, geometry.width, layout.gap or text.fontSize. Its value must be a
+token reference such as {color.brand.primary}. Token binding records native
+Penpot applied-token metadata and does not replace the currently resolved visual
+value. Only use token names present in the supplied context.
+
+A component or componentInstance may be created or replaced only when the
+supplied registry/context explicitly exposes a native component factory. If a
+requested component is unavailable, keep existing instances unchanged and
+report the unsupported capability instead of drawing a visually similar frame.
+
+Image nodes require a Penpot media asset. Without a supplied asset or media tool,
+use a clearly named image placeholder and mention the limitation in the plan.
+Do not invent asset IDs, component IDs, prototype destinations, token names,
+node IDs or parent IDs.
+
+Only reference nodes and components present in the supplied registry/context.
+Stay inside the declared scope. Do not return JavaScript, Clojure, executable
+expressions, network instructions, filesystem instructions, plugin calls or
+direct canvas commit commands.")
 
 (defn- truncate
   [value max-length]
