@@ -50,7 +50,8 @@
   (when proposal
     (-> proposal
         (assoc :proposal-id (:id proposal)
-               :requires-confirmation (not (contains? terminal-statuses (:status proposal))))
+               :requires-confirmation
+               (not (contains? terminal-statuses (:status proposal))))
         (dissoc :id :profile-id :apply-token))))
 
 (defn- expired?
@@ -67,21 +68,23 @@
 (defn- expire-row!
   [cfg proposal]
   (if (expired? proposal)
-    (-> (db/update! cfg :ai-design-proposal
-                    {:status "expired"
-                     :modified-at (ct/now)}
-                    {:id (:id proposal)
-                     :status (name (:status proposal))}
-                    {::db/return-keys true})
-        decode-row)
+    (or (some-> (db/update! cfg :ai-design-proposal
+                            {:status "expired"
+                             :modified-at (ct/now)
+                             :apply-token nil}
+                            {:id (:id proposal)
+                             :status (name (:status proposal))}
+                            {::db/return-keys true})
+                decode-row)
+        (get-row! cfg (:id proposal)))
     proposal))
 
 (defn get-owned!
   [cfg profile-id id & {:keys [access] :or {access :read}}]
   (policy/ensure-enabled!)
-  (let [proposal (-> (get-row! cfg id)
-                     (policy/ensure-owner! profile-id)
-                     (expire-row! cfg))]
+  (let [proposal (get-row! cfg id)
+        proposal (policy/ensure-owner! profile-id proposal)
+        proposal (expire-row! cfg proposal)]
     (case access
       :edit (policy/ensure-edit! cfg profile-id (:file-id proposal))
       (policy/ensure-read! cfg profile-id (:file-id proposal)))
@@ -243,8 +246,8 @@
   (-> (transition-row! cfg profile-id id :applied
                        {:applied-at (ct/now)
                         :apply-token nil
-                        :error nil
-                        :preview (db/json {:transaction-id transaction-id})})
+                        :transaction-id (str transaction-id)
+                        :error nil})
       public-view))
 
 (defn conflict!
