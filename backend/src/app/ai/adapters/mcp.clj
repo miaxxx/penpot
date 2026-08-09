@@ -43,6 +43,10 @@
               :hint "MCP tool UUID argument is required"
               :field field)))
 
+(defn- actor-profile-id!
+  [actor]
+  (coerce-uuid! (:profile-id actor) :profile-id true))
+
 (defn- ensure-tool!
   [tool-id]
   (let [tool-id (keyword tool-id)
@@ -147,17 +151,12 @@
 
 (defn- create-proposal!
   [cfg actor requested-dsl-type arguments]
-  (let [profile-id (:profile-id actor)]
-    (when-not profile-id
-      (ex/raise :type :authentication
-                :code :authentication-required
-                :hint "MCP transport did not provide an authenticated profile"))
-    (proposals/create!
-     cfg
-     (assoc (canonical-proposal-arguments arguments)
-            :profile-id profile-id
-            :origin :mcp
-            :dsl-type requested-dsl-type))))
+  (proposals/create!
+   cfg
+   (assoc (canonical-proposal-arguments arguments)
+          :profile-id (actor-profile-id! actor)
+          :origin :mcp
+          :dsl-type requested-dsl-type)))
 
 (defn invoke!
   "Invokes a registered MCP tool. Returns proposalId for write proposals; it
@@ -165,6 +164,7 @@
   capability."
   [cfg actor tool-id arguments]
   (let [tool-id (keyword tool-id)
+        profile-id (actor-profile-id! actor)
         _ (ensure-tool! tool-id)]
     (case tool-id
       :tools.list
@@ -188,18 +188,18 @@
       (create-proposal! cfg actor :patch arguments)
 
       :proposal.list
-      (proposal-queries/list-active! cfg (:profile-id actor)
+      (proposal-queries/list-active! cfg profile-id
                                      (file-id arguments)
                                      (page-id arguments))
 
       :proposal.get
-      (proposals/get! cfg (:profile-id actor) (proposal-id arguments))
+      (proposals/get! cfg profile-id (proposal-id arguments))
 
       :proposal.discard
-      (proposals/discard! cfg (:profile-id actor) (proposal-id arguments))
+      (proposals/discard! cfg profile-id (proposal-id arguments))
 
       :proposal.request-apply
-      (proposals/request-apply! cfg (:profile-id actor) (proposal-id arguments))
+      (proposals/request-apply! cfg profile-id (proposal-id arguments))
 
       (ex/raise :type :restriction
                 :code :ai-tool-not-available
