@@ -141,7 +141,7 @@
 (def layout-flags-persistence-mapping
   "A map of layout flags that should be persisted in local storage; the
   value corresponds to the key that will be used for save the data in
-  storage object."
+  storage object. It should be namespace qualified."
   {:hide-palettes :app.main.data.workspace/hide-palettes?
    :colorpalette :app.main.data.workspace/show-colorpalette?
    :textpalette :app.main.data.workspace/show-textpalette?
@@ -153,13 +153,13 @@
   stored in Storage."
   [layout]
   (let [layout (set (or layout #{}))]
-    (reduce (fn [layout [flag key]]
-              (condp = (get storage/user key ::none)
-                ::none layout
-                false  (disj layout flag)
-                true   (conj layout flag)))
-            layout
-            layout-flags-persistence-mapping)))
+    (reduce-kv (fn [layout flag key]
+                 (condp = (get storage/user key ::none)
+                   ::none layout
+                   false  (disj layout flag)
+                   true   (conj layout flag)))
+               layout
+               layout-flags-persistence-mapping)))
 
 (defn persist-layout-flags!
   "Given a set of layout flags, and persist a subset of them to the Storage."
