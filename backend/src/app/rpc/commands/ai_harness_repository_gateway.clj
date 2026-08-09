@@ -5,6 +5,7 @@
 (ns app.rpc.commands.ai-harness-repository-gateway
   "One authenticated RPC gateway for Repository Harness operations."
   (:require
+   [app.ai.harness.repository-service :as repository-service]
    [app.common.exceptions :as ex]
    [app.common.schema :as sm]
    [app.rpc :as-alias rpc]
@@ -14,6 +15,7 @@
   [:map {:closed true}
    [:action
     [:enum
+     "turn.run"
      "workspace.ensure" "workspace.get"
      "artifact.list" "artifact.get" "artifact.upsert" "artifact.route"
      "package.export" "package.import"
@@ -26,8 +28,10 @@
 
 (defn invoke
   [cfg {:keys [::rpc/profile-id action arguments]}]
-  (let [params (assoc (or arguments {}) ::rpc/profile-id profile-id)]
+  (let [arguments (or arguments {})
+        params (assoc arguments ::rpc/profile-id profile-id)]
     (case action
+      "turn.run" (repository-service/run-turn! cfg profile-id arguments)
       "workspace.ensure" (repository/ensure-workspace cfg params)
       "workspace.get" (repository/get-workspace cfg params)
       "artifact.list" (repository/list-artifacts cfg params)
