@@ -41,7 +41,7 @@
       :responsive (or (:responsive node) {})
       :bindings (or (:bindings node) {})
       :metadata (merge {:generated-by-ai true
-                        :semantic-role (name kind)
+                        :semantic-role (some-> kind name)
                         :dsl-version "1.0"}
                        (:metadata node))
       :children children}
