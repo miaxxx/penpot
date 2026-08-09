@@ -26,9 +26,18 @@
      "run.resume" "run.handoff" "run.complete" "run.latest"]]
    [:arguments {:optional true} :map]])
 
+(defn- reject-completion-bypass!
+  [action arguments]
+  (when (and (= action "run.update")
+             (= "completed" (some-> (:status arguments) name)))
+    (ex/raise :type :restriction
+              :code :ai-harness-completion-gate-required
+              :hint "Use run.complete so required verification evidence is enforced")))
+
 (defn invoke
   [cfg {:keys [::rpc/profile-id action arguments]}]
   (let [arguments (or arguments {})
+        _ (reject-completion-bypass! action arguments)
         params (assoc arguments ::rpc/profile-id profile-id)]
     (case action
       "turn.run" (repository-service/run-turn! cfg profile-id arguments)
