@@ -13,12 +13,25 @@
    [app.config :as cf]
    [app.db :as db]
    [app.email :as eml]
+   [app.loggers.audit :as-alias audit]
    [app.rpc :as-alias rpc]
+   [app.rpc.commands.ai :as ai]
    [app.rpc.commands.profile :as profile]
    [app.rpc.doc :as-alias doc]
    [app.util.services :as sv]))
 
 (declare ^:private send-user-feedback!)
+
+;; The main RPC registry currently scans an explicit namespace list that already
+;; includes this namespace. Keep the registration shim small and delegate all
+;; provider behavior to app.rpc.commands.ai. It can move unchanged when the AI
+;; namespace receives its own scanner entry.
+(sv/defmethod ::test-ai-provider
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:test-ai-provider}
+  [cfg params]
+  (ai/test-ai-provider cfg params))
 
 (def ^:private schema:send-user-feedback
   [:map {:title "send-user-feedback"}
