@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "harness-self-test",
+      "description": "Exercise the validator, source-map parsers and path safety on fixtures.",
+      "cwd": ".",
+      "command": "node scripts/harness/test.mjs",
+      "risk": "read-only",
+      "timeout_ms": 120000,
+      "required_for": [
+        "harness"
+      ]
+    },
+    {
+      "id": "harness-validate",
+      "description": "Validate all Harness subsystems and completion evidence.",
+      "cwd": ".",
+      "command": "node scripts/harness/check.mjs --strict",
+      "risk": "read-only",
+      "timeout_ms": 120000,
+      "required_for": [
+        "harness"
+      ]
+    },
+    {
+      "id": "source-map-ai",
+      "description": "Build the focused AI code navigation map.",
+      "cwd": ".",
+      "command": "node scripts/harness/sourcemap.mjs build --profile ai",
+      "risk": "generated-write",
+      "timeout_ms": 180000,
+      "required_for": [
+        "ai-design-agent"
+      ]
+    },
+    {
+      "id": "repo-format-check",
+      "description": "Run the repository formatting gate.",
+      "cwd": ".",
+      "command": "pnpm run check-fmt",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "cross-module"
+      ]
+    },
+    {
+      "id": "repo-lint",
+      "description": "Run clj-kondo across the main Clojure/ClojureScript modules.",
+      "cwd": ".",
+      "command": "pnpm run lint",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "cross-module"
+      ]
+    },
+    {
+      "id": "backend-ai-tests",
+      "description": "Run focused backend secret/provider tests.",
+      "cwd": "backend",
+      "command": "clojure -M:dev:test --focus backend-tests.ai-secrets-test",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "backend-ai"
+      ]
+    },
+    {
+      "id": "common-ai-tests",
+      "description": "Run focused common Document/Patch DSL tests.",
+      "cwd": "common",
+      "command": "clojure -M:dev:test --focus common-tests.ai-dsl-test",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "common-ai"
+      ]
+    },
+    {
+      "id": "frontend-cljs-lint",
+      "description": "Run frontend ClojureScript lint.",
+      "cwd": "frontend",
+      "command": "pnpm run lint:clj",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "frontend-ai"
+      ]
+    },
+    {
+      "id": "frontend-format-check",
+      "description": "Run frontend ClojureScript formatting checks.",
+      "cwd": "frontend",
+      "command": "pnpm run check-fmt:clj",
+      "risk": "read-only",
+      "timeout_ms": 900000,
+      "required_for": [
+        "frontend-ai"
+      ]
+    }
+  ]
+}

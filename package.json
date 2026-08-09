@@ -13,7 +13,13 @@
   "scripts": {
     "lint": "./scripts/lint",
     "check-fmt": "./scripts/check-fmt",
-    "fmt": "./scripts/fmt"
+    "fmt": "./scripts/fmt",
+    "harness:init": "node scripts/harness/init.mjs --check",
+    "harness:check": "node scripts/harness/check.mjs --strict",
+    "harness:test": "node scripts/harness/test.mjs",
+    "harness:map": "node scripts/harness/sourcemap.mjs build --profile ai",
+    "harness:query": "node scripts/harness/sourcemap.mjs query",
+    "harness:evidence": "node scripts/harness/evidence.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

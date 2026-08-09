@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://penpot.app/schemas/harness-feature-list.schema.json",
+  "title": "Penpot Harness Feature List",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "active_feature_id",
+    "features"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "active_feature_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "status",
+          "owner",
+          "depends_on",
+          "scope",
+          "acceptance",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z]+-[0-9]{3,}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "planned",
+              "in_progress",
+              "blocked",
+              "done"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "acceptance": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "check_id",
+                "result",
+                "recorded_at"
+              ],
+              "properties": {
+                "check_id": {
+                  "type": "string"
+                },
+                "result": {
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "manual",
+                    "skipped"
+                  ]
+                },
+                "recorded_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

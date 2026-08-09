@@ -1,79 +1,68 @@
-# AI AGENT GUIDE
+# Penpot Agent Entry
 
-## CRITICAL: Read module memories BEFORE writing any code
+This file is a router, not the project manual. Read only the guidance required
+for the active task, then work through the repository Harness.
 
-Do this **before planning, before coding, before touching any file**:
+## Start every session
 
-1. Read `critical-info` (use `serena_read_memory critical-info` or read `.serena/memories/critical-info.md`).
-   It describes the project structure and tells you which modules exist.
-2. From `critical-info`, identify which modules your task affects.
-3. Read each affected module's **core memory** — the name is `<module>/core`
-   (e.g. `frontend/core`, `backend/core`, `common/core`).
-4. If the core memory references deeper `mem:` memories relevant to your task, read those too.
+1. Read `.serena/memories/critical-info.md`.
+2. Identify every affected module and read each `<module>/core` memory.
+3. Follow relevant `mem:` links before editing.
+4. Read `.harness/feature-list.json`, `.harness/PROGRESS.md`, and
+   `.harness/session-handoff.md`.
+5. Run `./init.sh --check` and resolve or record environment failures.
+6. Use `node scripts/harness/sourcemap.mjs query <term>` to locate symbols and
+   dependencies before broad code search when the map exists.
 
-**STOP: Do not proceed until you have read the core memory of every affected module.**
-Skipping this step is the #1 cause of incorrect or incomplete work.
+## Work loop
 
----
+`read rules -> initialize -> select one feature -> inspect -> plan -> edit ->
+run registered checks -> record evidence -> update state -> hand off`
 
-# Memory system
+- Work on one active feature unless ownership is explicitly split.
+- Keep changes inside the feature scope. Record newly discovered work instead
+  of silently expanding the task.
+- Run checks by ID through `node scripts/harness/evidence.mjs <check-id>`.
+- A feature may be `done` only when every acceptance criterion has passing,
+  reproducible evidence.
+- Update `.harness/PROGRESS.md` and `.harness/session-handoff.md` before ending
+  a long-running session.
 
-Memories are the **primary project guidance** — not docs or readme files.
-They are dense, agent-oriented notes: terse bullets, invariants, no prose.
+## Hard invariants
 
-## Entry point
+- Chat history is not project state; repository files are.
+- Confidence is not evidence. Never claim completion without command results.
+- Never run destructive commands or bypass the tool registry without explicit
+  user approval.
+- Never persist raw API keys, authorization headers, access tokens, prompts
+  containing secrets, or provider responses containing credentials.
+- The source map is a derived navigation index, not a second source of truth.
+- Preserve Penpot's native change/undo transaction boundaries.
+- AI Design Agent changes remain feature-flagged, validate Document/Patch DSL
+  and Canonical Design IR before apply, and keep preview separate from apply.
+- Do not touch unrelated modules. Avoid unrelated formatting diffs.
 
-Start at `critical-info` (the graph root). It describes the project structure,
-module dependency graph, and references section-level core memories.
+## Routing
 
-## Progressive discovery model
+| Need | Read |
+|---|---|
+| Harness model and file map | `.harness/README.md` |
+| Operational rules | `.harness/RULES.md` |
+| Allowed tools and commands | `.harness/TOOLS.md`, `.harness/tool-registry.json` |
+| Verification and evidence | `.harness/CHECKS.md`, `.harness/checks.json` |
+| Detailed workflow | `docs/harness/workflow.md` |
+| Source-map index | `docs/harness/source-map.md` |
+| AI Design Agent boundaries | `docs/harness/ai-design-agent.md` |
+| Security and permissions | `docs/harness/security.md` |
+| Module-specific engineering | `.serena/memories/<module>/core.md` |
 
-Memories form a **reference graph**, not a flat list:
+## Common commands
 
+```bash
+./init.sh --check
+node scripts/harness/check.mjs --strict
+node scripts/harness/test.mjs
+node scripts/harness/sourcemap.mjs build --profile ai
+node scripts/harness/sourcemap.mjs query <symbol-or-path>
+node scripts/harness/evidence.mjs <check-id>
 ```
-critical-info          ← read first (graph root)
-  └─ <section>/core    ← top-level memory per section (e.g. frontend/core, backend/core)
-       └─ <topic>      ← focused memories (e.g. frontend/handling-errors-and-debugging)
-            └─ ...     ← deeper memories as needed
-```
-
-When working on a task:
-1. Read `critical-info` to identify which sections are affected.
-2. Read the affected section's `core` memory for an overview.
-3. Follow `mem:` references in the core memory to focused memories relevant to your task.
-4. Continue following references deeper as needed.
-
-## Accessing memories
-
-- **If `serena_read_memory` / `serena_list_memories` tools are available**: use them.
-  `serena_read_memory` takes a memory name (e.g. `critical-info`, `frontend/core`).
-- **If tools are NOT available**: read the filesystem directly.
-  Memory name `mem:foo/bar` maps to file `.serena/memories/foo/bar.md`.
-
-## Cross-reference convention
-
-Memories reference other memories with `mem:<section>/<name>` inside backticks.
-Example: `mem:common/changes-architecture`.
-When you encounter a `mem:` reference relevant to your task, read that memory next.
-
-## Topic/folder organization
-
-Memories are grouped into folders that mirror project modules or topics:
-`backend/`, `common/`, `frontend/`, `render-wasm/`, `exporter/`, `workflow/`, etc.
-Each folder's top-level memory is `<folder>/core`.
-
----
-
-# Role: Senior Software Engineer
-
-You are a high-autonomy Senior Full-Stack Software Engineer. You have full
-permission to navigate the codebase, modify files, and execute commands to
-fulfill your tasks. Your goal is to solve complex technical tasks with high
-precision while maintaining a strong focus on maintainability and performance.
-
-## Operational Guidelines
-
-1. Before writing code, describe your plan. If the task is complex, break it
-   down into atomic steps.
-2. Be concise and autonomous.
-3. Do **not** touch unrelated modules unless the task explicitly requires it.
