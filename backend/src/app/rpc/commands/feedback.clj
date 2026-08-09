@@ -23,8 +23,8 @@
 (declare ^:private send-user-feedback!)
 
 ;; The main RPC registry currently scans an explicit namespace list that already
-;; includes this namespace. Keep the registration shim small and delegate all
-;; provider behavior to app.rpc.commands.ai. It can move unchanged when the AI
+;; includes this namespace. Keep the registration shims small and delegate all
+;; provider behavior to app.rpc.commands.ai. They can move unchanged when the AI
 ;; namespace receives its own scanner entry.
 (sv/defmethod ::test-ai-provider
   {::doc/added "2.10"
@@ -32,6 +32,15 @@
    ::sm/params ai/schema:test-ai-provider}
   [cfg params]
   (ai/test-ai-provider cfg params))
+
+(sv/defmethod ::generate-ai-design-proposal
+  {::doc/added "2.10"
+   ;; Provider credentials and scoped design context must never become generic
+   ;; RPC audit properties.
+   ::audit/skip true
+   ::sm/params ai/schema:generate-ai-design-proposal}
+  [cfg params]
+  (ai/generate-ai-design-proposal cfg params))
 
 (def ^:private schema:send-user-feedback
   [:map {:title "send-user-feedback"}
