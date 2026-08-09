@@ -1,0 +1,151 @@
+@use "~@ds/typography.scss" as *;
+
+.repository-harness {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-background-quaternary);
+  border-radius: 8px;
+  background: var(--color-background-secondary);
+}
+
+.repository-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+
+  > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+.repository-caption {
+  color: var(--color-foreground-secondary);
+  font-size: 10px;
+}
+
+.repository-actions {
+  display: flex;
+  gap: 4px;
+
+  button {
+    padding: 3px 6px;
+    border: 1px solid var(--color-background-quaternary);
+    border-radius: 5px;
+    background: var(--color-background-primary);
+    color: var(--color-foreground-primary);
+    cursor: pointer;
+    font-size: 10px;
+  }
+}
+
+.repository-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+
+  > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    border-radius: 6px;
+    background: var(--color-background-primary);
+  }
+
+  span {
+    overflow: hidden;
+    color: var(--color-foreground-secondary);
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    overflow: hidden;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.repository-run {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+
+  > div {
+    display: flex;
+    gap: 6px;
+    font-size: 10px;
+  }
+
+  > div > span:first-child {
+    width: 34px;
+    flex: none;
+    color: var(--color-foreground-secondary);
+  }
+}
+
+.repository-checks,
+.repository-artifacts {
+  font-size: 10px;
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+}
+
+.repository-check,
+.repository-artifact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-background-quaternary);
+}
+
+.repository-artifact {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.repository-check-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-foreground-secondary);
+}
+
+.repository-check-pass {
+  background: var(--color-accent-success);
+}
+
+.repository-check-fail {
+  background: var(--color-accent-error);
+}
+
+.repository-check-status,
+.repository-artifact span:last-child {
+  color: var(--color-foreground-secondary);
+  font-size: 9px;
+}
+
+.repository-error {
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--color-background-error);
+  color: var(--color-foreground-error);
+  font-size: 10px;
+}
+
+.repository-note {
+  color: var(--color-foreground-secondary);
+  font-size: 10px;
+}
