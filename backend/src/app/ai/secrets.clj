@@ -16,7 +16,8 @@
 
 (defn- sensitive-key?
   [key]
-  (-> key name str/lower-case (contains? sensitive-key-names)))
+  (contains? sensitive-key-names
+             (-> key name str/lower-case)))
 
 (defn last-four
   [secret]
