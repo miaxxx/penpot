@@ -10,6 +10,7 @@
   never from untrusted tool arguments. MCP can create and manage proposals but
   cannot invoke the native commit capability."
   (:require
+   [app.ai.proposal-queries :as proposal-queries]
    [app.ai.proposals :as proposals]
    [app.common.ai.tools :as tools]
    [app.common.ai.validation :as validation]
@@ -85,6 +86,14 @@
   [arguments]
   (getv arguments :proposal-id :proposalId "proposalId" "proposal-id"))
 
+(defn- file-id
+  [arguments]
+  (getv arguments :file-id :fileId "fileId" "file-id"))
+
+(defn- page-id
+  [arguments]
+  (getv arguments :page-id :pageId "pageId" "page-id"))
+
 (defn- validate-dsl
   [arguments]
   (let [dsl-type (dsl-type arguments)
@@ -99,8 +108,8 @@
 
 (defn- canonical-proposal-arguments
   [arguments]
-  {:file-id (getv arguments :file-id :fileId "fileId" "file-id")
-   :page-id (getv arguments :page-id :pageId "pageId" "page-id")
+  {:file-id (file-id arguments)
+   :page-id (page-id arguments)
    :base-revision (getv arguments :base-revision :baseRevision
                         "baseRevision" "base-revision")
    :mode (getv arguments :mode "mode")
@@ -149,6 +158,11 @@
 
       :proposal.create-patch
       (create-proposal! cfg actor :patch arguments)
+
+      :proposal.list
+      (proposal-queries/list-active! cfg (:profile-id actor)
+                                     (file-id arguments)
+                                     (page-id arguments))
 
       :proposal.get
       (proposals/get! cfg (:profile-id actor) (proposal-id arguments))
