@@ -7,6 +7,7 @@
 (ns app.rpc.commands.feedback
   "A general purpose feedback module and AI RPC registration bridge."
   (:require
+   [app.ai.harness.lifecycle :as harness-lifecycle]
    [app.common.data :as d]
    [app.common.exceptions :as ex]
    [app.common.schema :as sm]
@@ -42,18 +43,40 @@
   ai/schema:list-proposals ai/list-ai-design-proposals)
 (def-ai-bridge ::get-ai-design-proposal
   ai/schema:proposal-id ai/get-ai-design-proposal)
-(def-ai-bridge ::preview-ai-design-proposal
-  ai/schema:preview-proposal ai/preview-ai-design-proposal)
 (def-ai-bridge ::discard-ai-design-proposal
   ai/schema:proposal-id ai/discard-ai-design-proposal)
 (def-ai-bridge ::request-ai-design-proposal-apply
   ai/schema:proposal-id ai/request-ai-design-proposal-apply)
 (def-ai-bridge ::begin-ai-design-proposal-apply
   ai/schema:proposal-id ai/begin-ai-design-proposal-apply)
-(def-ai-bridge ::complete-ai-design-proposal-apply
-  ai/schema:complete-proposal ai/complete-ai-design-proposal-apply)
-(def-ai-bridge ::conflict-ai-design-proposal
-  ai/schema:conflict-proposal ai/conflict-ai-design-proposal)
+
+(sv/defmethod ::preview-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:preview-proposal}
+  [cfg {:keys [::rpc/profile-id proposal-id preview] :as params}]
+  (let [result (ai/preview-ai-design-proposal cfg params)]
+    (harness-lifecycle/previewed! cfg profile-id proposal-id preview)
+    result))
+
+(sv/defmethod ::complete-ai-design-proposal-apply
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:complete-proposal}
+  [cfg {:keys [::rpc/profile-id proposal-id] :as params}]
+  (let [result (ai/complete-ai-design-proposal-apply cfg params)]
+    (harness-lifecycle/applied! cfg profile-id proposal-id)
+    result))
+
+(sv/defmethod ::conflict-ai-design-proposal
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:conflict-proposal}
+  [cfg {:keys [::rpc/profile-id proposal-id error] :as params}]
+  (let [result (ai/conflict-ai-design-proposal cfg params)]
+    (harness-lifecycle/conflicted! cfg profile-id proposal-id error)
+    result))
+
 (def-ai-bridge ::list-ai-design-tools
   [:map {:closed true}] ai/list-ai-design-tools)
 (def-ai-bridge ::list-ai-mcp-tools
@@ -92,8 +115,6 @@
 (def-ai-bridge ::list-ai-harness-runs
   ai/schema:list-harness-runs ai/list-ai-harness-runs)
 
-;; Backward-compatible command name. Every normal AI turn now enters the
-;; Repository Harness before provider execution.
 (sv/defmethod ::run-ai-harness-turn
   {::doc/added "2.10"
    ::audit/skip true
