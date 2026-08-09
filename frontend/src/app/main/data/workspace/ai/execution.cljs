@@ -13,6 +13,7 @@
    [app.common.files.changes-builder :as pcb]
    [app.common.files.shapes-helpers :as cfsh]
    [app.common.types.shape :as cts]
+   [app.common.uuid :as uuid]
    [app.main.data.changes :as dch]
    [app.main.data.helpers :as dsh]
    [app.main.data.workspace.undo :as dwu]
@@ -193,7 +194,6 @@
                :errors (:errors compiled)
                :warnings (:warnings compiled)}
               (let [root-id (first (:root-ids compiled))
-                    parent (get objects parent-id)
                     after (reduce (fn [result shape]
                                     (assoc result (:id shape) shape))
                                   objects
@@ -255,22 +255,43 @@
                 (contains? current-objects id)))
          affected-ids)))
 
+(defn- callback-event
+  [callback payload]
+  (ptk/reify ::callback-event
+    ptk/EffectEvent
+    (effect [_ _ _]
+      (when callback
+        (callback payload)))))
+
 (defn apply-proposal
-  "Revalidates against current canvas objects and commits all native changes as
-  one Undo transaction. Stale proposals emit a conflict event and never write
-  partial changes."
-  [{:keys [page-id target-objects parent-ids] :as proposal}]
+  "The only native AI write gateway. Revalidates current objects, submits one
+  Penpot Undo transaction and reports completion/conflict to the unified
+  proposal lifecycle."
+  [{:keys [page-id target-objects parent-ids proposal-id apply-token
+           on-applied on-conflict]
+    :as proposal}]
   (ptk/reify ::apply-proposal
     ptk/WatchEvent
     (watch [it state _]
       (let [current (dsh/lookup-page-objects state page-id)]
         (if (proposal-stale? current proposal)
-          (rx/of (ptk/data-event :ai/proposal-conflict
-                                 {:page-id page-id
-                                  :affected-ids (:affected-ids proposal)}))
+          (let [payload {:proposal-id proposal-id
+                         :apply-token apply-token
+                         :page-id page-id
+                         :affected-ids (:affected-ids proposal)
+                         :error {:code :stale-canvas
+                                 :message "Canvas changed after proposal preview."}}]
+            (rx/from
+             [(ptk/data-event :ai/proposal-conflict payload)
+              (callback-event on-conflict payload)]))
           (let [{:keys [changes]}
                 (prepare-object-diff it page-id current target-objects)
-                transaction-id (js/Symbol)
+                transaction-id (uuid/next)
+                payload {:proposal-id proposal-id
+                         :apply-token apply-token
+                         :transaction-id (str transaction-id)
+                         :page-id page-id
+                         :affected-ids (:affected-ids proposal)}
                 events (cond-> [(dwu/start-undo-transaction transaction-id)
                                 (dch/commit-changes changes)]
                          (seq parent-ids)
@@ -278,7 +299,6 @@
 
                          :always
                          (conj (dwu/commit-undo-transaction transaction-id)
-                               (ptk/data-event :ai/proposal-applied
-                                               {:page-id page-id
-                                                :affected-ids (:affected-ids proposal)})))]
+                               (ptk/data-event :ai/proposal-applied payload)
+                               (callback-event on-applied payload)))]
             (rx/from events)))))))
