@@ -5,13 +5,15 @@
 (ns app.ai.adapters.mcp
   "Transport-neutral MCP adapter over the unified AI operation kernel.
 
-  An HTTP/SSE MCP transport must authenticate the actor and inject profile-id.
-  Live canvas context must come from an authenticated Penpot workspace bridge,
-  never from untrusted tool arguments. MCP can create and manage proposals but
-  cannot invoke the native commit capability."
+  MCP may read Harness state and create Proposals. It cannot submit native
+  verification evidence, complete a Harness run or invoke canvas commit."
   (:require
+   [app.ai.harness.artifacts :as harness-artifacts]
+   [app.ai.harness.checks :as harness-checks]
+   [app.ai.harness.runs :as harness-runs]
    [app.ai.proposal-queries :as proposal-queries]
    [app.ai.proposals :as proposals]
+   [app.common.ai.repository-tools :as repository-tools]
    [app.common.ai.tools :as tools]
    [app.common.ai.validation :as validation]
    [app.common.exceptions :as ex]
@@ -19,15 +21,12 @@
 
 (def transport :mcp)
 
-(defn- getv
-  [value & keys]
+(defn- getv [value & keys]
   (some (fn [key]
-          (when (contains? value key)
-            (get value key)))
+          (when (contains? value key) (get value key)))
         keys))
 
-(defn- coerce-uuid!
-  [value field required?]
+(defn- coerce-uuid! [value field required?]
   (cond
     (uuid? value) value
     (string? value)
@@ -43,27 +42,28 @@
               :hint "MCP tool UUID argument is required"
               :field field)))
 
-(defn- actor-profile-id!
-  [actor]
+(defn- actor-profile-id! [actor]
   (coerce-uuid! (:profile-id actor) :profile-id true))
 
-(defn- ensure-tool!
-  [tool-id]
+(defn- registered-tool [tool-id]
+  (or (tools/get-tool tool-id)
+      (repository-tools/get-tool tool-id)))
+
+(defn- ensure-tool! [tool-id]
   (let [tool-id (keyword tool-id)
-        tool (tools/get-tool tool-id)]
+        tool (registered-tool tool-id)]
     (when-not tool
       (ex/raise :type :validation
                 :code :unknown-ai-tool
                 :hint "AI tool is not registered"))
-    (when-not (tools/allowed? tool-id transport)
+    (when-not (contains? (:transports tool) transport)
       (ex/raise :type :restriction
                 :code :ai-tool-not-available
                 :hint "AI tool is not available through MCP"
                 :tool tool-id))
     tool))
 
-(defn tool-descriptor
-  [tool]
+(defn tool-descriptor [tool]
   (let [id (:id tool)
         read-only? (= :read (:access tool))]
     {:id id
@@ -79,7 +79,8 @@
       :destructiveHint (contains? #{:proposal/discard :canvas/commit}
                                   (:capability tool))
       :idempotentHint (contains? #{:tools/read :canvas/read :dsl/validate
-                                  :proposal/read :proposal/request-apply}
+                                  :proposal/read :proposal/request-apply
+                                  :harness/read}
                                 (:capability tool))}
      :_meta
      {:registryVersion (:version tool)
@@ -88,49 +89,50 @@
       :confirmation (name (:confirmation tool))
       :result (name (:result tool))}}))
 
-(defn list-tools
-  []
-  {:registry-version tools/registry-version
-   :tools (mapv tool-descriptor (tools/list-tools transport))})
+(defn list-tools []
+  (let [registered (concat (tools/list-tools transport)
+                           (repository-tools/list-tools transport))]
+    {:registry-version tools/registry-version
+     :harness-version "2.0"
+     :tools (mapv tool-descriptor (sort-by (comp name :id) registered))}))
 
-(defn- workspace-context!
-  [actor]
+(defn- workspace-context! [actor]
   (or (:workspace-context actor)
       (ex/raise :type :validation
                 :code :workspace-bridge-required
                 :hint "canvas read tools require an authenticated live Penpot workspace bridge")))
 
-(defn- dsl-type
-  [arguments]
+(defn- dsl-type [arguments]
   (some-> (getv arguments :dsl-type :dslType "dslType" "dsl-type") keyword))
 
-(defn- proposal-id
-  [arguments]
-  (coerce-uuid!
-   (getv arguments :proposal-id :proposalId "proposalId" "proposal-id")
-   :proposal-id
-   true))
+(defn- proposal-id [arguments]
+  (coerce-uuid! (getv arguments :proposal-id :proposalId
+                      "proposalId" "proposal-id")
+                :proposal-id true))
 
-(defn- file-id
-  [arguments]
-  (coerce-uuid!
-   (getv arguments :file-id :fileId "fileId" "file-id")
-   :file-id
-   true))
+(defn- file-id [arguments]
+  (coerce-uuid! (getv arguments :file-id :fileId "fileId" "file-id")
+                :file-id true))
 
 (defn- page-id
   ([arguments] (page-id arguments false))
   ([arguments required?]
-   (coerce-uuid!
-    (getv arguments :page-id :pageId "pageId" "page-id")
-    :page-id
-    required?)))
+   (coerce-uuid! (getv arguments :page-id :pageId "pageId" "page-id")
+                 :page-id required?)))
 
-(defn- validate-dsl
-  [arguments]
-  (let [dsl-type (dsl-type arguments)
+(defn- workspace-id [arguments]
+  (coerce-uuid! (getv arguments :workspace-id :workspaceId
+                      "workspaceId" "workspace-id")
+                :workspace-id true))
+
+(defn- run-id [arguments]
+  (coerce-uuid! (getv arguments :run-id :runId "runId" "run-id")
+                :run-id true))
+
+(defn- validate-dsl [arguments]
+  (let [type (dsl-type arguments)
         dsl (getv arguments :dsl "dsl")
-        result (case dsl-type
+        result (case type
                  :document (validation/validate-document dsl)
                  :patch (validation/validate-patch dsl)
                  {:valid? false
@@ -138,8 +140,7 @@
                             :message "dslType must be document or patch"}]})]
     (select-keys result [:valid? :errors :warnings :ir])))
 
-(defn- canonical-proposal-arguments
-  [arguments]
+(defn- canonical-proposal-arguments [arguments]
   {:file-id (file-id arguments)
    :page-id (page-id arguments true)
    :base-revision (getv arguments :base-revision :baseRevision
@@ -149,8 +150,7 @@
    :plan (or (getv arguments :plan "plan") {})
    :dsl (getv arguments :dsl "dsl")})
 
-(defn- create-proposal!
-  [cfg actor requested-dsl-type arguments]
+(defn- create-proposal! [cfg actor requested-dsl-type arguments]
   (proposals/create!
    cfg
    (assoc (canonical-proposal-arguments arguments)
@@ -159,47 +159,47 @@
           :dsl-type requested-dsl-type)))
 
 (defn invoke!
-  "Invokes a registered MCP tool. Returns proposalId for write proposals; it
-  never returns direct canvas-write success because MCP has no native commit
-  capability."
+  "Invokes a registered MCP tool. Writes return proposalId or Harness metadata;
+  MCP never receives native commit or completion authority."
   [cfg actor tool-id arguments]
   (let [tool-id (keyword tool-id)
         profile-id (actor-profile-id! actor)
         _ (ensure-tool! tool-id)]
     (case tool-id
-      :tools.list
-      (list-tools)
-
+      :tools.list (list-tools)
       :canvas.summary
       (let [context (workspace-context! actor)]
         (or (:summary context)
             (select-keys context [:snapshot-version :scope :revision :summary])))
-
-      :canvas.read
-      (workspace-context! actor)
-
-      :dsl.validate
-      (validate-dsl arguments)
-
-      :proposal.create-document
-      (create-proposal! cfg actor :document arguments)
-
-      :proposal.create-patch
-      (create-proposal! cfg actor :patch arguments)
-
+      :canvas.read (workspace-context! actor)
+      :dsl.validate (validate-dsl arguments)
+      :proposal.create-document (create-proposal! cfg actor :document arguments)
+      :proposal.create-patch (create-proposal! cfg actor :patch arguments)
       :proposal.list
       (proposal-queries/list-active! cfg profile-id
-                                     (file-id arguments)
-                                     (page-id arguments))
-
-      :proposal.get
-      (proposals/get! cfg profile-id (proposal-id arguments))
-
+                                     (file-id arguments) (page-id arguments))
+      :proposal.get (proposals/get! cfg profile-id (proposal-id arguments))
       :proposal.discard
       (proposals/discard! cfg profile-id (proposal-id arguments))
-
       :proposal.request-apply
       (proposals/request-apply! cfg profile-id (proposal-id arguments))
+
+      :harness.workspace.ensure
+      (harness-artifacts/ensure-workspace!
+       cfg profile-id {:file-id (file-id arguments)
+                       :page-id (page-id arguments)})
+      :harness.artifacts.list
+      (harness-artifacts/list-artifacts! cfg profile-id (workspace-id arguments))
+      :harness.artifact.get
+      (harness-artifacts/get-artifact!
+       cfg profile-id (workspace-id arguments)
+       (getv arguments :path "path"))
+      :harness.run.latest
+      (harness-runs/latest-for-workspace! cfg profile-id (workspace-id arguments))
+      :harness.checks.list
+      (harness-checks/list-definitions)
+      :harness.checks.results
+      (harness-checks/list-results! cfg profile-id (run-id arguments))
 
       (ex/raise :type :restriction
                 :code :ai-tool-not-available
