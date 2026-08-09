@@ -10,6 +10,10 @@ Prototype and Inspect. It keeps the canvas editable. AI output never writes to
 the file directly: every operation must pass through a preview, explicit user
 confirmation and one native Penpot change transaction.
 
+The feature is disabled by default. Enable it with the standard Penpot flag
+`enable-ai-design-agent`. Both the sidebar entry and backend provider endpoint
+check the parsed `:ai-design-agent` capability.
+
 ## Product invariant
 
 The core invariant is:
@@ -102,12 +106,15 @@ The first provider implementation uses the OpenAI-compatible protocol.
 
 - The API key is held in component memory for the current panel session.
 - It is sent only to an authenticated Penpot backend RPC.
+- The credential-bearing RPC is explicitly excluded from generic RPC audit
+  logging because audit properties normally derive from decoded request params.
 - It is never returned in full, written to a file, persisted to browser storage
   or included in normal error data.
 - Provider calls are made by the backend HTTP client with SSRF validation on the
   initial URI and every redirect.
 - Logs and responses must use redaction or last-four display only.
-- The kill switch is the `disable-ai-design-agent` configuration flag.
+- The frontend and backend are both closed unless `enable-ai-design-agent` is
+  present in Penpot flags.
 
 Encrypted account-level credentials, key rotation and a server-side credential
 ID are deferred to the production-hardening phase.
@@ -117,6 +124,12 @@ ID are deferred to the production-hardening phase.
 Preview state must remain local and ephemeral. It must not enter collaboration
 history, persistence queues or other users' workspaces. A proposal records the
 base file revision, page, selection IDs and relevant node revisions.
+
+The foundation includes a native change transaction adapter. It can build a
+local temporary object snapshot from parent-first Penpot shapes and can submit
+the same redo/undo pair through a single workspace Undo transaction. It is not
+yet exposed by the UI: revision checks, scope enforcement and the complete
+IR-to-shape compiler must be connected first.
 
 On apply, the compiler must generate both redo and undo changes and submit them
 through the existing Penpot change/undo machinery as one origin-tagged
@@ -150,10 +163,12 @@ common/src/app/common/ai/
   ir.cljc           canonical IR utilities
   normalize.cljc    deterministic normalization
   validation.cljc   semantic and capability validation
+  capability.cljc   Compile Mode readiness report
   registry.cljc     component registry primitives
 
 frontend/src/app/main/data/workspace/ai/
   context.cljs      bounded selection/page context
+  execution.cljs    native preview/apply transaction boundary
 
 frontend/src/app/main/ui/workspace/sidebar/ai/
   panel.cljs        transaction-oriented sidebar shell
@@ -165,7 +180,10 @@ backend/src/app/ai/
   providers/openai_compatible.clj
 
 backend/src/app/rpc/commands/ai.clj
-  authenticated provider connection test
+  provider connection implementation
+
+backend/src/app/rpc/commands/feedback.clj
+  temporary scanned-namespace registration shim for test-ai-provider
 ```
 
 ## Required follow-up PR sequence
