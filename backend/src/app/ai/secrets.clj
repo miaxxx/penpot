@@ -10,6 +10,14 @@
 
 (def redacted "••••••••")
 
+(def ^:private sensitive-key-names
+  #{"api-key" "apikey" "authorization" "credential" "access-token"
+    "accesstoken" "secret"})
+
+(defn- sensitive-key?
+  [key]
+  (-> key name str/lower-case (contains? sensitive-key-names)))
+
 (defn last-four
   [secret]
   (let [secret (str secret)]
@@ -24,17 +32,20 @@
     (reduce-kv
      (fn [result key item]
        (assoc result key
-              (if (contains? #{:api-key :apiKey :authorization :credential} key)
+              (if (sensitive-key? key)
                 redacted
                 (redact-value item))))
-     {}
+     (empty value)
      value)
 
     (vector? value)
     (mapv redact-value value)
 
+    (set? value)
+    (into #{} (map redact-value) value)
+
     (sequential? value)
-    (map redact-value value)
+    (doall (map redact-value value))
 
     :else value))
 
