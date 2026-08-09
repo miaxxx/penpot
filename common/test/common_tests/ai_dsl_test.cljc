@@ -4,6 +4,7 @@
 
 (ns common-tests.ai-dsl-test
   (:require
+   [app.common.ai.capability :as capability]
    [app.common.ai.validation :as validation]
    [clojure.test :as t]))
 
@@ -72,3 +73,20 @@
         result (validation/validate-patch patch)]
     (t/is (false? (:valid? result)))
     (t/is (some #(= :missing-scope-root (:code %)) (:errors result)))))
+
+(t/deftest reports-compile-mode-issues
+  (let [validation-result (validation/validate-document valid-document)
+        root (-> validation-result :ir :root)
+        report (capability/analyze {} root)]
+    (t/is (false? (:compatible? report)))
+    (t/is (= 1 (get-in report [:counts :errors])))
+    (t/is (some #(= :component-not-registered (:code %))
+                (:issues report)))))
+
+(t/deftest accepts-registered-components
+  (let [validation-result (validation/validate-document valid-document)
+        root (-> validation-result :ir :root)
+        registry {"PainPointCard" {:id "PainPointCard"}}
+        report (capability/analyze registry root)]
+    (t/is (:compatible? report))
+    (t/is (= 100 (:score report)))))
