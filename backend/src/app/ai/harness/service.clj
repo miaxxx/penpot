@@ -48,7 +48,9 @@
 (defn- control!
   [cfg profile-id session resolved]
   (let [session-id (:id session)
-        command (:command resolved)
+        command (or (:command resolved)
+                    {:name (:name resolved)
+                     :arguments (:arguments resolved)})
         name (:name command)
         arguments (:arguments command)
         recent (delay (sessions/recent-runs cfg profile-id session-id 8))]
