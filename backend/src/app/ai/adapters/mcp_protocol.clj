@@ -87,12 +87,19 @@
 
       :else
       (let [result (invoke-method! cfg actor method params)]
-        (if (= result {:unsupported-method method})
+        (cond
+          ;; JSON-RPC notifications never receive a response.
+          (nil? id)
+          nil
+
+          (= result {:unsupported-method method})
           {:jsonrpc "2.0"
            :id id
            :error {:code -32601
                    :message "Method not found"
                    :data {:method method}}}
-          (cond-> {:jsonrpc "2.0"
-                   :result result}
-            (some? id) (assoc :id id)))))))
+
+          :else
+          {:jsonrpc "2.0"
+           :id id
+           :result result})))))
