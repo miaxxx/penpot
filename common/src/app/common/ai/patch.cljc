@@ -21,6 +21,8 @@
 
 (def ^:private path-aliases
   {"name" [:name]
+   "text" [:ai/text]
+   "content.text" [:ai/text]
    "geometry.x" [:x]
    "geometry.y" [:y]
    "geometry.width" [:width]
@@ -32,6 +34,7 @@
    "style.stroke" [:strokes 0 :stroke-color]
    "style.strokeWidth" [:strokes 0 :stroke-width]
    "style.radius" [:ai/radius]
+   "style.shadow" [:shadow]
    "layout.type" [:layout]
    "layout.direction" [:layout-flex-dir]
    "layout.gap" [:ai/layout-gap]
@@ -46,6 +49,32 @@
    "interactions" [:interactions]
    "tokens" [:applied-tokens]
    "pluginData" [:plugin-data]})
+
+(def ^:private path->token-attrs
+  {"geometry.x" [:x]
+   "geometry.y" [:y]
+   "geometry.width" [:width]
+   "geometry.height" [:height]
+   "geometry.rotation" [:rotation]
+   "style.fill" [:fill]
+   "style.stroke" [:stroke-color]
+   "style.strokeWidth" [:stroke-width]
+   "style.opacity" [:opacity]
+   "style.radius" [:r1 :r2 :r3 :r4]
+   "style.shadow" [:shadow]
+   "layout.gap" [:row-gap :column-gap]
+   "layout.padding" [:p1 :p2 :p3 :p4]
+   "text.fontFamily" [:font-family]
+   "text.fontSize" [:font-size]
+   "text.fontWeight" [:font-weight]
+   "text.letterSpacing" [:letter-spacing]
+   "text.lineHeight" [:line-height]
+   "text.textCase" [:text-case]
+   "text.textDecoration" [:text-decoration]
+   "text.typography" [:typography]})
+
+(def ^:private token-name-re
+  #"^[a-zA-Z0-9_-][a-zA-Z0-9$_-]*(\.[a-zA-Z0-9$_-]+)*$")
 
 (defn- error
   [code operation-index message & [data]]
@@ -143,9 +172,61 @@
     :layout-justify-content (normalize-keyword value)
     value))
 
+(defn- default-text-content
+  [text]
+  {:type "root"
+   :children [{:type "paragraph-set"
+               :children [{:type "paragraph"
+                           :children [{:text (str text)}]}]}]})
+
+(defn- replace-rich-text
+  "Replaces textual content while preserving the existing Penpot rich-text
+  hierarchy and style attributes. The first text run receives the replacement;
+  later runs are cleared so the new text is never duplicated."
+  [content text]
+  (letfn [(walk [value replaced?]
+            (cond
+              (map? value)
+              (if (and (contains? value :text)
+                       (string? (:text value)))
+                [(assoc value :text (if replaced? "" (str text))) true]
+                (reduce-kv
+                 (fn [[result used?] key item]
+                   (let [[item used?] (walk item used?)]
+                     [(assoc result key item) used?]))
+                 [(empty value) replaced?]
+                 value))
+
+              (vector? value)
+              (reduce
+               (fn [[result used?] item]
+                 (let [[item used?] (walk item used?)]
+                   [(conj result item) used?]))
+               [[] replaced?]
+               value)
+
+              (sequential? value)
+              (let [[items used?]
+                    (reduce
+                     (fn [[result used?] item]
+                       (let [[item used?] (walk item used?)]
+                         [(conj result item) used?]))
+                     [[] replaced?]
+                     value)]
+                [items used?])
+
+              :else [value replaced?]))]
+    (if content
+      (let [[updated replaced?] (walk content false)]
+        (if replaced? updated (default-text-content text)))
+      (default-text-content text))))
+
 (defn- set-semantic-value
   [shape path value]
   (case (first path)
+    :ai/text
+    (assoc shape :content (replace-rich-text (:content shape) value))
+
     :ai/radius
     (let [value (double value)]
       (assoc shape :r1 value :r2 value :r3 value :r4 value))
@@ -193,6 +274,7 @@
 (defn- unset-semantic-value
   [shape path]
   (case (first path)
+    :ai/text (assoc shape :content (default-text-content ""))
     :ai/radius (dissoc shape :r1 :r2 :r3 :r4)
     :ai/layout-gap (dissoc shape :layout-gap :layout-gap-type)
     :ai/layout-padding (dissoc shape :layout-padding :layout-padding-type)
@@ -203,10 +285,64 @@
       (dissoc shape (first path))
       (update-in shape (butlast path) dissoc (last path)))))
 
+(defn- normalize-token-name
+  [value]
+  (when (string? value)
+    (let [value (str/trim value)
+          value (if (and (str/starts-with? value "{")
+                         (str/ends-with? value "}"))
+                  (subs value 1 (dec (count value)))
+                  value)]
+      (when (re-matches token-name-re value)
+        value))))
+
+(defn- apply-bind-token
+  [state snapshot scope-ids operation operation-index]
+  (let [id (resolve-target snapshot operation :node-id)
+        path (if (keyword? (:path operation))
+               (name (:path operation))
+               (str (:path operation)))
+        token-attrs (get path->token-attrs path)
+        token-name (normalize-token-name (:value operation))]
+    (cond
+      (nil? id)
+      (update state :errors conj
+              (error :target-not-found operation-index
+                     "Token binding target does not exist"
+                     {:node-id (:node-id operation)}))
+
+      (not (within-scope? scope-ids id))
+      (update state :errors conj
+              (error :out-of-scope operation-index
+                     "Token binding target is outside the declared scope"))
+
+      (nil? token-attrs)
+      (update state :errors conj
+              (error :unsupported-token-target operation-index
+                     "Semantic path cannot be bound to a Penpot token"
+                     {:path (:path operation)}))
+
+      (nil? token-name)
+      (update state :errors conj
+              (error :invalid-token-name operation-index
+                     "Token value must be a valid token name or {token.name} reference"
+                     {:value (:value operation)}))
+
+      :else
+      (-> state
+          (update-in [:objects id :applied-tokens]
+                     (fn [bindings]
+                       (reduce (fn [bindings attr]
+                                 (assoc bindings attr token-name))
+                               (or bindings {})
+                               token-attrs)))
+          (update :modified conj id)))))
+
 (defn- apply-set
   [state snapshot scope-ids operation operation-index unset?]
   (let [id (resolve-target snapshot operation :node-id)
-        path (resolve-path (:path operation))]
+        path (resolve-path (:path operation))
+        shape (get-in state [:objects id])]
     (cond
       (nil? id)
       (update state :errors conj
@@ -228,11 +364,16 @@
               (error :protected-path operation-index "Core shape identity/tree fields require an explicit operation"
                      {:path (:path operation)}))
 
+      (and (= :ai/text (first path))
+           (not= :text (:type shape)))
+      (update state :errors conj
+              (error :invalid-text-target operation-index
+                     "Text content can only be changed on a Penpot text shape"))
+
       :else
-      (let [before (get-in state [:objects id])
-            after (if unset?
-                    (unset-semantic-value before path)
-                    (set-semantic-value before path (:value operation)))]
+      (let [after (if unset?
+                    (unset-semantic-value shape path)
+                    (set-semantic-value shape path (:value operation)))]
         (-> state
             (assoc-in [:objects id] after)
             (update :modified conj id))))))
@@ -334,7 +475,7 @@
   (case (:op operation)
     :set (apply-set state snapshot scope-ids operation operation-index false)
     :unset (apply-set state snapshot scope-ids operation operation-index true)
-    :bind-token (apply-set state snapshot scope-ids operation operation-index false)
+    :bind-token (apply-bind-token state snapshot scope-ids operation operation-index)
     :set-variant (apply-set state snapshot scope-ids
                             (assoc operation :path "penpot.variant-properties")
                             operation-index false)
