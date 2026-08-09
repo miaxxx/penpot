@@ -17,6 +17,13 @@
 
 (def transport :mcp)
 
+(defn- getv
+  [value & keys]
+  (some (fn [key]
+          (when (contains? value key)
+            (get value key)))
+        keys))
+
 (defn- ensure-tool!
   [tool-id]
   (let [tool-id (keyword tool-id)
@@ -50,9 +57,18 @@
                 :code :workspace-bridge-required
                 :hint "canvas read tools require an authenticated live Penpot workspace bridge")))
 
+(defn- dsl-type
+  [arguments]
+  (some-> (getv arguments :dsl-type :dslType "dslType" "dsl-type") keyword))
+
+(defn- proposal-id
+  [arguments]
+  (getv arguments :proposal-id :proposalId "proposalId" "proposal-id"))
+
 (defn- validate-dsl
-  [{:keys [dsl-type dsl]}]
-  (let [dsl-type (keyword dsl-type)
+  [arguments]
+  (let [dsl-type (dsl-type arguments)
+        dsl (getv arguments :dsl "dsl")
         result (case dsl-type
                  :document (validation/validate-document dsl)
                  :patch (validation/validate-patch dsl)
@@ -61,8 +77,19 @@
                             :message "dslType must be document or patch"}]})]
     (select-keys result [:valid? :errors :warnings :ir])))
 
+(defn- canonical-proposal-arguments
+  [arguments]
+  {:file-id (getv arguments :file-id :fileId "fileId" "file-id")
+   :page-id (getv arguments :page-id :pageId "pageId" "page-id")
+   :base-revision (getv arguments :base-revision :baseRevision
+                        "baseRevision" "base-revision")
+   :mode (getv arguments :mode "mode")
+   :scope (getv arguments :scope "scope")
+   :plan (or (getv arguments :plan "plan") {})
+   :dsl (getv arguments :dsl "dsl")})
+
 (defn- create-proposal!
-  [cfg actor dsl-type arguments]
+  [cfg actor requested-dsl-type arguments]
   (let [profile-id (:profile-id actor)]
     (when-not profile-id
       (ex/raise :type :authentication
@@ -70,11 +97,10 @@
                 :hint "MCP transport did not provide an authenticated profile"))
     (proposals/create!
      cfg
-     (-> arguments
-         (assoc :profile-id profile-id
-                :origin :mcp
-                :dsl-type dsl-type)
-         (dissoc :apply-token :transaction-id :status)))))
+     (assoc (canonical-proposal-arguments arguments)
+            :profile-id profile-id
+            :origin :mcp
+            :dsl-type requested-dsl-type))))
 
 (defn invoke!
   "Invokes a registered MCP tool. Returns proposalId for write proposals; it
@@ -105,13 +131,13 @@
       (create-proposal! cfg actor :patch arguments)
 
       :proposal.get
-      (proposals/get! cfg (:profile-id actor) (:proposal-id arguments))
+      (proposals/get! cfg (:profile-id actor) (proposal-id arguments))
 
       :proposal.discard
-      (proposals/discard! cfg (:profile-id actor) (:proposal-id arguments))
+      (proposals/discard! cfg (:profile-id actor) (proposal-id arguments))
 
       :proposal.request-apply
-      (proposals/request-apply! cfg (:profile-id actor) (:proposal-id arguments))
+      (proposals/request-apply! cfg (:profile-id actor) (proposal-id arguments))
 
       (ex/raise :type :restriction
                 :code :ai-tool-not-available
