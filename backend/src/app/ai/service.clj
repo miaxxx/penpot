@@ -75,19 +75,69 @@ filesystem instructions, plugin calls or direct canvas commit commands.")
   [content]
   (try
     (json/decode (strip-code-fence content) :key-fn keyword)
-    (catch Throwable _
-      nil)))
+    (catch Throwable _ nil)))
 
-(defn- normalize-dsl-type
+(defn- normalize-keyword
   [value]
   (cond
     (keyword? value) value
     (string? value) (keyword value)
     :else nil))
 
+(defn- get-either
+  [value camel kebab]
+  (if (contains? value camel)
+    (get value camel)
+    (get value kebab)))
+
+(defn- context-scope
+  [request]
+  (or (get-in request [:context :scope])
+      (get-in request [:context "scope"])
+      {}))
+
+(defn- boundary-errors
+  [request dsl-type dsl]
+  (let [requested-mode (:mode request)
+        requested-scope (:scope request)
+        dsl-scope (:scope dsl)
+        actual-scope (normalize-keyword (:type dsl-scope))
+        expected-context-scope (context-scope request)
+        expected-root (or (get-either expected-context-scope :rootId :root-id)
+                          (get-either expected-context-scope "rootId" "root-id"))
+        actual-root (get-either dsl-scope :rootId :root-id)
+        expected-revision (or (get-in request [:context :revision])
+                              (get-in request [:context "revision"]))
+        actual-revision (get-either dsl :baseRevision :base-revision)]
+    (cond-> []
+      (and (not= requested-mode :generate)
+           (not= dsl-type :patch))
+      (conj {:code :patch-required
+             :message "Modify, refactor and adapt requests must return Patch DSL"})
+
+      (and (= dsl-type :patch)
+           (not= requested-scope actual-scope))
+      (conj {:code :scope-escalation
+             :message "Patch scope does not match the user-declared scope"
+             :expected requested-scope
+             :actual actual-scope})
+
+      (and (= dsl-type :patch)
+           (contains? #{:selection :component} requested-scope)
+           expected-root
+           (not= (str expected-root) (str actual-root)))
+      (conj {:code :scope-root-mismatch
+             :message "Patch root does not match the active canvas scope"})
+
+      (and (= dsl-type :patch)
+           (number? expected-revision)
+           (not= expected-revision actual-revision))
+      (conj {:code :base-revision-mismatch
+             :message "Patch baseRevision does not match the supplied canvas revision"}))))
+
 (defn- validate-output
-  [output]
-  (let [dsl-type (normalize-dsl-type (:dslType output))
+  [request output]
+  (let [dsl-type (normalize-keyword (:dslType output))
         dsl (:dsl output)
         plan (:plan output)
         plan-errors (cond-> []
@@ -104,7 +154,9 @@ filesystem instructions, plugin calls or direct canvas commit commands.")
           {:valid? false
            :errors [{:code :invalid-dsl-type
                      :message "dslType must be document or patch"}]})
-        errors (vec (concat plan-errors (:errors validation-result)))]
+        errors (vec (concat plan-errors
+                            (:errors validation-result)
+                            (boundary-errors request dsl-type dsl)))]
     {:valid? (empty? errors)
      :errors errors
      :warnings (:warnings validation-result)
@@ -121,16 +173,12 @@ filesystem instructions, plugin calls or direct canvas commit commands.")
          "\nDeclared scope: " (name scope)
          "\n\nScoped Penpot canvas context:\n" context-json)))
 
-(defn- provider-request
-  [request messages]
-  (assoc request :messages messages))
-
 (defn- request-once
   [provider-instance cfg request messages]
-  (->> (provider-request request messages)
+  (->> (assoc request :messages messages)
        (provider/generate-design! provider-instance cfg)
        parse-output
-       validate-output))
+       (validate-output request)))
 
 (defn generate-proposal!
   [provider-instance cfg request]
@@ -143,17 +191,20 @@ filesystem instructions, plugin calls or direct canvas commit commands.")
             (str "Your previous JSON did not pass validation. Return a corrected JSON object only.\n"
                  "Validation errors:\n"
                  (json/encode (:errors first-result) :key-fn json/write-camel-key)
-                 "\nDo not broaden the scope or change the user's intent.")
-            repaired (request-once provider-instance cfg request
-                                   (conj messages {:role :assistant
-                                                   :content (truncate
-                                                             (json/encode
-                                                              {:plan (:plan first-result)
-                                                               :dslType (some-> (:dsl-type first-result) name)
-                                                               :dsl (:dsl first-result)}
-                                                              :key-fn json/write-camel-key)
-                                                             max-invalid-output-characters)}
-                                                  {:role :user :content repair-message}))]
+                 "\nDo not broaden the scope, change baseRevision or change the user's intent.")
+            previous-output
+            (truncate
+             (json/encode
+              {:plan (:plan first-result)
+               :dslType (some-> (:dsl-type first-result) name)
+               :dsl (:dsl first-result)}
+              :key-fn json/write-camel-key)
+             max-invalid-output-characters)
+            repaired
+            (request-once provider-instance cfg request
+                          (conj messages
+                                {:role :assistant :content previous-output}
+                                {:role :user :content repair-message}))]
         (if (:valid? repaired)
           (assoc (select-keys repaired [:valid? :plan :dsl-type :dsl :warnings])
                  :repaired? true)
