@@ -4,9 +4,7 @@
 
 (ns app.main.data.workspace.ai.context
   "Builds intentionally small AI context payloads from the current workspace.
-  Full files are never included by default."
-  (:require
-   [app.common.data :as d]))
+  Full files are never included by default.")
 
 (def ^:private shape-context-keys
   [:id :name :type :parent-id :frame-id :component-id :component-file
@@ -20,6 +18,17 @@
     (cond-> summary
       (seq (:shapes shape))
       (assoc :children-count (count (:shapes shape))))))
+
+(defn- distinct-shapes
+  [shapes]
+  (->> shapes
+       (reduce (fn [{:keys [seen result]} shape]
+                 (if (contains? seen (:id shape))
+                   {:seen seen :result result}
+                   {:seen (conj seen (:id shape))
+                    :result (conj result shape)}))
+               {:seen #{} :result []})
+       :result))
 
 (defn- parent-chain
   [objects shape max-depth]
@@ -54,7 +63,7 @@
      :selection (mapv #(child-tree objects % 4) selected-shapes)
      :parents (->> selected-shapes
                    (mapcat #(parent-chain objects % 2))
-                   (d/distinct-by :id)
+                   distinct-shapes
                    vec)
      :limits {:child-depth 4
               :parent-depth 2}}))
