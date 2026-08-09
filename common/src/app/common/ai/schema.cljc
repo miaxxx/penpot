@@ -63,7 +63,7 @@
    [:stroke {:optional true} [:or :string schema:token-reference]]
    [:radius {:optional true} [:or :number schema:token-reference]]
    [:shadow {:optional true} [:or :string schema:token-reference]]
-   [:opacity {:optional true} [:double {:min 0.0 :max 1.0}]]
+   [:opacity {:optional true} [:number {:min 0 :max 1}]]
    [:typography {:optional true} [:or :string schema:token-reference]]])
 
 (def schema:component-reference
