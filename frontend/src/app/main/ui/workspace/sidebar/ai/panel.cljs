@@ -8,6 +8,7 @@
    [app.common.ai.canvas :as ai-canvas]
    [app.common.uuid :as uuid]
    [app.main.data.workspace.ai.execution :as ai-exec]
+   [app.main.refs :as refs]
    [app.main.repo :as rp]
    [app.main.store :as st]
    [app.util.dom :as dom]
@@ -65,21 +66,9 @@
   [{:keys [open? on-close config*]}]
   (let [{:keys [provider base-url model api-key temperature max-tokens]} @config*
         status* (mf/use-state :idle)
-
-        update-config!
-        (fn [key value]
-          (swap! config* assoc key value))
-
-        on-success
-        (mf/use-fn
-         (fn [_]
-           (reset! status* :ok)))
-
-        on-error
-        (mf/use-fn
-         (fn [_]
-           (reset! status* :error)))
-
+        update-config! (fn [key value] (swap! config* assoc key value))
+        on-success (mf/use-fn (fn [_] (reset! status* :ok)))
+        on-error (mf/use-fn (fn [_] (reset! status* :error)))
         on-test
         (mf/use-fn
          (fn [event]
@@ -138,17 +127,14 @@
         [:label {:class (stl/css :field)}
          [:span {:class (stl/css :field-label)} "Temperature"]
          [:input {:type "number"
-                  :min "0"
-                  :max "2"
-                  :step "0.1"
+                  :min "0" :max "2" :step "0.1"
                   :value temperature
                   :on-change #(update-config! :temperature
                                               (parse-number (event-value %) 0.2))}]]
         [:label {:class (stl/css :field)}
          [:span {:class (stl/css :field-label)} "Max tokens"]
          [:input {:type "number"
-                  :min "256"
-                  :max "32768"
+                  :min "256" :max "32768"
                   :value max-tokens
                   :on-change #(update-config! :max-tokens
                                               (parse-int (event-value %) 4096))}]]]
@@ -160,18 +146,12 @@
         (if (= :testing @status*) "Testing…" "Test connection")]
 
        (case @status*
-         :missing-fields
-         [:div {:class (stl/css :status-message :status-warning)}
-          "Complete the base URL, model and API key first."]
-
-         :ok
-         [:div {:class (stl/css :status-message)}
-          "Connection successful. The key remains session-only."]
-
-         :error
-         [:div {:class (stl/css :status-message :status-warning)}
-          "Connection failed. Verify the provider URL, model access and credential."]
-
+         :missing-fields [:div {:class (stl/css :status-message :status-warning)}
+                          "Complete the base URL, model and API key first."]
+         :ok [:div {:class (stl/css :status-message)}
+              "Connection successful. The key remains session-only."]
+         :error [:div {:class (stl/css :status-message :status-warning)}
+                 "Connection failed. Verify the provider URL, model access and credential."]
          nil)])))
 
 (mf/defc render-errors*
@@ -194,7 +174,9 @@
     (let [counts (get-in proposal [:diff :counts] {})
           plan (:plan proposal)]
       [:div {:class (stl/css :proposal)}
-       [:div {:class (stl/css :proposal-label)} "Proposed transaction"]
+       [:div {:class (stl/css :proposal-label)}
+        (str "Proposal " (or (:proposal-id proposal) "local")
+             " · " (name (or (:status proposal) :validated)))]
        [:div {:class (stl/css :proposal-title)}
         (or (:title plan) (:title proposal) "AI canvas update")]
 
@@ -216,9 +198,9 @@
        [:> render-errors* {:errors (:errors proposal)}]
 
        [:div {:class (stl/css :proposal-note)}
-        (if (:valid? proposal)
+        (if (and (:valid? proposal) (= :previewed (:status proposal)))
           "Validated preview — no Penpot changes have been committed."
-          "The proposal cannot be applied until all validation errors are resolved.")]
+          "The proposal cannot be applied until validation and preview complete.")]
 
        [:div {:class (stl/css :proposal-actions)}
         [:button {:type "button"
@@ -231,7 +213,8 @@
          "Continue editing"]
         [:button {:type "button"
                   :class (stl/css :primary-button)
-                  :disabled (not (:valid? proposal))
+                  :disabled (not (and (:valid? proposal)
+                                      (= :previewed (:status proposal))))
                   :on-click on-apply}
          "Apply design"]]])))
 
@@ -242,7 +225,9 @@
         root-id (some-> selected-shape ai-canvas/semantic-id)]
     (case scope
       :page {:type :page}
-      :component {:type :component :root-id root-id}
+      :component {:type :component
+                  :root-id root-id
+                  :selection-ids (vec selected)}
       {:type :selection
        :root-id root-id
        :selection-ids (vec selected)})))
@@ -261,9 +246,18 @@
                         parent-id
                         (:frame-id parent))}))
 
+(defn- preview-summary
+  [proposal]
+  {:counts (get-in proposal [:diff :counts])
+   :affected-ids (mapv str (:affected-ids proposal))
+   :warning-count (count (:warnings proposal))
+   :compiler "native-penpot-change"})
+
 (mf/defc panel*
   [{:keys [objects selected page-id file-id]}]
-  (let [scope* (mf/use-state :selection)
+  (let [file (mf/deref refs/file)
+        revision (or (:revn file) 0)
+        scope* (mf/use-state :selection)
         mode* (mf/use-state :generate)
         draft* (mf/use-state "")
         settings-open?* (mf/use-state false)
@@ -278,30 +272,32 @@
                            :temperature 0.2
                            :max-tokens 4096})
 
-        scope-map
-        (scope-definition @scope* selected objects)
-
+        scope-map (scope-definition @scope* selected objects)
         snapshot
-        (mf/with-memo [objects selected page-id file-id @scope*]
+        (mf/with-memo [objects selected page-id file-id revision @scope*]
           (ai-canvas/build-snapshot
            {:file-id file-id
             :page-id page-id
-            :revision 0
+            :revision revision
             :objects objects
             :scope scope-map}))
+        canvas-summary (ai-canvas/summary snapshot)
 
-        canvas-summary
-        (ai-canvas/summary snapshot)
+        set-request-error!
+        (mf/use-fn
+         (fn [title error]
+           (reset! request-status* :error)
+           (reset! proposal*
+                   {:valid? false
+                    :title title
+                    :errors [{:code (or (:code error) :proposal-error)
+                              :message (or (:hint error)
+                                           "The proposal lifecycle request failed.")}]})))
 
         on-provider-error
         (mf/use-fn
          (fn [error]
-           (reset! request-status* :error)
-           (reset! proposal*
-                   {:valid? false
-                    :title "Provider request failed"
-                    :errors [{:code (or (:code error) :provider-error)
-                              :message "The model request failed or returned an invalid structured proposal."}]})))
+           (set-request-error! "Provider request failed" error)))
 
         on-provider-success
         (mf/use-fn
@@ -316,7 +312,7 @@
                     (merge target
                            {:file-id file-id
                             :page-id page-id
-                            :revision 0
+                            :revision revision
                             :objects objects
                             :scope scope-map
                             :document dsl
@@ -326,7 +322,7 @@
                    (ai-exec/proposal-from-patch
                     {:file-id file-id
                      :page-id page-id
-                     :revision 0
+                     :revision revision
                      :objects objects
                      :scope scope-map
                      :patch dsl
@@ -334,16 +330,35 @@
 
                    {:valid? false
                     :errors [{:code :invalid-dsl-type
-                              :message "Provider returned an unsupported DSL type."}]})]
-             (reset! request-status* :idle)
-             (reset! proposal* (assoc compiled :plan (:plan response))))))
+                              :message "Provider returned an unsupported DSL type."}]})
+                 local-proposal (merge response compiled
+                                       {:plan (:plan response)
+                                        :status :validated})]
+             (if-not (:valid? compiled)
+               (do
+                 (reset! request-status* :error)
+                 (reset! proposal* local-proposal))
+               (do
+                 (reset! request-status* :previewing)
+                 (->> (rp/cmd! :preview-ai-design-proposal
+                               {:proposal-id (:proposal-id response)
+                                :preview (preview-summary local-proposal)})
+                      (rx/subs!
+                       (fn [persisted]
+                         (reset! request-status* :idle)
+                         (reset! proposal*
+                                 (merge local-proposal persisted
+                                        {:valid? true :status :previewed})))
+                       (fn [error]
+                         (set-request-error! "Preview persistence failed" error)))))))))
 
         on-submit
         (mf/use-fn
          (fn [event]
            (dom/prevent-default event)
            (when (and (seq @draft*)
-                      (not= :loading @request-status*))
+                      (not (contains? #{:loading :previewing :applying}
+                                      @request-status*)))
              (let [request @draft*
                    config @provider-config*
                    context (ai-canvas/compact-context snapshot)]
@@ -352,28 +367,80 @@
                (reset! proposal* nil)
                (->> (rp/cmd! :generate-ai-design-proposal
                              (merge config
-                                    {:mode (name @mode*)
+                                    {:file-id file-id
+                                     :page-id page-id
+                                     :base-revision revision
+                                     :mode (name @mode*)
                                      :scope (name @scope*)
                                      :prompt request
                                      :context context}))
                     (rx/subs! on-provider-success on-provider-error))
                (reset! draft* "")))))
 
+        on-discard
+        (mf/use-fn
+         (fn []
+           (when-let [proposal-id (:proposal-id @proposal*)]
+             (->> (rp/cmd! :discard-ai-design-proposal
+                           {:proposal-id proposal-id})
+                  (rx/subs! (fn [_] nil) (fn [_] nil))))
+           (reset! proposal* nil)
+           (reset! request-status* :idle)))
+
         on-apply
         (mf/use-fn
          (fn []
-           (when (:valid? @proposal*)
-             (st/emit! (ai-exec/apply-proposal
-                        (assoc @proposal* :page-id page-id)))
-             (swap! messages* conj
-                    {:role :assistant
-                     :content "Applied as one native Penpot transaction. Undo will revert the complete AI change."})
-             (reset! proposal* nil))))]
+           (when (and (:valid? @proposal*)
+                      (= :previewed (:status @proposal*)))
+             (reset! request-status* :applying)
+             (let [proposal @proposal*
+                   proposal-id (:proposal-id proposal)]
+               (->> (rp/cmd! :begin-ai-design-proposal-apply
+                             {:proposal-id proposal-id})
+                    (rx/subs!
+                     (fn [{:keys [apply-token]}]
+                       (st/emit!
+                        (ai-exec/apply-proposal
+                         (assoc proposal
+                                :page-id page-id
+                                :apply-token apply-token
+                                :on-applied
+                                (fn [{:keys [transaction-id]}]
+                                  (->> (rp/cmd! :complete-ai-design-proposal-apply
+                                                {:proposal-id proposal-id
+                                                 :apply-token apply-token
+                                                 :transaction-id transaction-id})
+                                       (rx/subs!
+                                        (fn [_]
+                                          (reset! request-status* :idle)
+                                          (swap! messages* conj
+                                                 {:role :assistant
+                                                  :content "Applied as one native Penpot transaction. Undo reverts the complete AI change."})
+                                          (reset! proposal* nil))
+                                        (fn [error]
+                                          (set-request-error! "Transaction completion failed" error)))))
+                                :on-conflict
+                                (fn [{:keys [error]}]
+                                  (->> (rp/cmd! :conflict-ai-design-proposal
+                                                {:proposal-id proposal-id
+                                                 :apply-token apply-token
+                                                 :error error})
+                                       (rx/subs!
+                                        (fn [persisted]
+                                          (reset! request-status* :error)
+                                          (reset! proposal*
+                                                  (merge proposal persisted
+                                                         {:valid? false
+                                                          :errors [error]})))
+                                        (fn [rpc-error]
+                                          (set-request-error! "Conflict persistence failed" rpc-error)))))))))
+                     (fn [error]
+                       (set-request-error! "Apply authorization failed" error))))))))]
     [:div {:class (stl/css :ai-panel)}
      [:div {:class (stl/css :panel-header)}
       [:div
        [:div {:class (stl/css :panel-title)} "AI Assistant"]
-       [:div {:class (stl/css :panel-subtitle)} "Transactional canvas agent"]]
+       [:div {:class (stl/css :panel-subtitle)} "Unified proposal transaction agent"]]
       [:button {:type "button"
                 :class (stl/css :settings-button)
                 :aria-label "AI provider settings"
@@ -399,26 +466,30 @@
       (str "Canvas context: " (:node-count canvas-summary) " nodes · "
            (:component-count canvas-summary) " components · "
            (:token-bound-count canvas-summary) " token-bound · "
-           (:interaction-count canvas-summary) " interactions")]
+           (:interaction-count canvas-summary) " interactions · revision " revision)]
 
      [:div {:class (stl/css :conversation)}
       (if (empty? @messages*)
         [:div {:class (stl/css :empty-state)}
          [:div {:class (stl/css :empty-title)} "Describe a canvas operation"]
-         [:p "The agent reads the scoped Penpot shape tree, returns validated Document or Patch DSL, previews a native diff and waits for confirmation."]]
+         [:p "Every entry point creates the same persistent Proposal, previews a native diff and waits for Penpot confirmation."]]
         (for [[index message] (map-indexed vector @messages*)]
           [:div {:key index
                  :class (stl/css-case :message true
                                       :message-user (= :user (:role message)))}
            (:content message)]))
 
-      (when (= :loading @request-status*)
+      (when (contains? #{:loading :previewing :applying} @request-status*)
         [:div {:class (stl/css :proposal-note)}
-         "Reading canvas context and validating a structured proposal…"])
+         (case @request-status*
+           :loading "Reading canvas context and creating a persistent proposal…"
+           :previewing "Compiling native Penpot Changes and saving the preview diff…"
+           :applying "Locking revision and committing one native transaction…"
+           "Working…")])
 
       [:> plan-card*
        {:proposal @proposal*
-        :on-discard #(reset! proposal* nil)
+        :on-discard on-discard
         :on-apply on-apply}]]
 
      [:form {:class (stl/css :composer)
@@ -430,6 +501,7 @@
       [:button {:type "submit"
                 :class (stl/css :primary-button)
                 :disabled (or (empty? @draft*)
-                              (= :loading @request-status*)
+                              (contains? #{:loading :previewing :applying}
+                                         @request-status*)
                               (empty? (:api-key @provider-config*)))}
        (if (= :loading @request-status*) "Generating…" "Send")]]]))
