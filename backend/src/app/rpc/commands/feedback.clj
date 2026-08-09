@@ -46,6 +46,13 @@
   [cfg params]
   (ai/create-ai-design-proposal cfg params))
 
+(sv/defmethod ::list-ai-design-proposals
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:list-proposals}
+  [cfg params]
+  (ai/list-ai-design-proposals cfg params))
+
 (sv/defmethod ::get-ai-design-proposal
   {::doc/added "2.10"
    ::audit/skip true
