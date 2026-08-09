@@ -29,12 +29,23 @@
                    :params {}})
         tools (get-in response [:result :tools])
         names (into #{} (map :name) tools)
-        patch (first (filter #(= "proposal.create-patch" (:name %)) tools))]
+        patch (first (filter #(= "proposal.create-patch" (:name %)) tools))
+        list-tool (first (filter #(= "proposal.list" (:name %)) tools))]
     (t/is (contains? names "proposal.create-patch"))
+    (t/is (contains? names "proposal.list"))
     (t/is (contains? names "proposal.request-apply"))
     (t/is (not (contains? names "native.commit")))
     (t/is (= "object" (get-in patch [:inputSchema :type])))
+    (t/is (= ["fileId"] (get-in list-tool [:inputSchema :required])))
     (t/is (= :proposal-id (:result patch)))))
+
+(t/deftest notifications-do-not-receive-json-rpc-responses
+  (t/is (nil?
+         (protocol/handle-request!
+          nil nil
+          {:jsonrpc "2.0"
+           :method "notifications/initialized"
+           :params {}}))))
 
 (t/deftest returns-json-rpc-method-errors
   (let [response (protocol/handle-request!
