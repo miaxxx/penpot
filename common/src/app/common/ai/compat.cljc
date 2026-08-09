@@ -121,15 +121,49 @@
         (= :frame (:type parent)) parent-id
         :else (recur parent-id (conj seen current-id))))))
 
+(defn- descendant-ids
+  [objects root-id]
+  (loop [queue (if root-id [root-id] [])
+         seen #{}
+         result #{}]
+    (if-let [id (first queue)]
+      (if (contains? seen id)
+        (recur (subvec (vec queue) 1) seen result)
+        (let [children (vec (or (:shapes (get objects id)) []))]
+          (recur (into (subvec (vec queue) 1) children)
+                 (conj seen id)
+                 (conj result id))))
+      result)))
+
+(defn- changed-ids
+  [before after]
+  (into #{}
+        (keep (fn [[id shape]]
+                (when (not= shape (get before id)) id)))
+        after))
+
+(defn- frame-repair-ids
+  [before after changed]
+  (let [structural-roots
+        (filter (fn [id]
+                  (let [old (get before id)
+                        new (get after id)]
+                    (or (nil? old)
+                        (not= (:parent-id old) (:parent-id new)))))
+                changed)]
+    (into changed (mapcat #(descendant-ids after %) structural-roots))))
+
 (defn- repair-frame-ids
-  [objects]
-  (reduce-kv
-   (fn [result id shape]
-     (if-let [frame-id (containing-frame-id objects id)]
-       (assoc result id (assoc shape :frame-id frame-id))
-       (assoc result id shape)))
-   {}
-   objects))
+  [objects repair-ids]
+  (reduce
+   (fn [result id]
+     (if-let [shape (get result id)]
+       (if-let [frame-id (containing-frame-id result id)]
+         (assoc result id (assoc shape :frame-id frame-id))
+         result)
+       result))
+   objects
+   repair-ids))
 
 (defn finalize-objects
   "Canonicalizes AI-produced object graphs before Shape validation and native
@@ -141,12 +175,19 @@
   * stale selrect/points after direct semantic geometry edits;
   * frame-id propagation for every descendant after cross-frame moves."
   [before after]
-  (->> after
-       (reduce-kv
-        (fn [result id shape]
-          (assoc result id
-                 (->> shape
-                      canonical-paints
-                      (rebuild-geometry (get before id)))))
-        {})
-       repair-frame-ids))
+  (let [changed (changed-ids before after)
+        repair-ids (frame-repair-ids before after changed)
+        normalized
+        (reduce-kv
+         (fn [result id shape]
+           (assoc result id
+                  (if (contains? changed id)
+                    (-> shape
+                        canonical-paints
+                        (cond-> (= :text (:type shape))
+                          (dissoc :position-data))
+                        (rebuild-geometry (get before id)))
+                    shape)))
+         {}
+         after)]
+    (repair-frame-ids normalized repair-ids)))
