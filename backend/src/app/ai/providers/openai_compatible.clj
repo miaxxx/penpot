@@ -49,7 +49,7 @@
                 :code :invalid-ai-provider-response
                 :hint "AI provider returned an invalid or oversized response"))
     (let [decoded (try
-                    (json/decode body)
+                    (json/decode body :key-fn keyword)
                     (catch Throwable _
                       (ex/raise :type :validation
                                 :code :invalid-ai-provider-response
