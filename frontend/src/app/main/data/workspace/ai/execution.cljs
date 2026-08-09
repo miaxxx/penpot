@@ -6,6 +6,7 @@
   "Native Penpot preview and atomic transaction boundary for AI proposals."
   (:require
    [app.common.ai.canvas :as canvas]
+   [app.common.ai.compat :as compat]
    [app.common.ai.compiler :as compiler]
    [app.common.ai.patch :as patch]
    [app.common.ai.validation :as validation]
@@ -106,9 +107,13 @@
 
 (defn prepare-object-diff
   "Compiles an in-memory before/after graph into native Penpot redo and undo
-  changes. No workspace state, collaboration history or persistence is mutated."
+  changes. No workspace state, collaboration history or persistence is mutated.
+
+  The compatibility pass repairs semantic writes into canonical Penpot Shape
+  structures before validation, preview and commit."
   [origin page-id before after]
-  (let [diff (patch/diff-objects before after)
+  (let [after (compat/finalize-objects before after)
+        diff (patch/diff-objects before after)
         _ (validate-result-shapes! after diff)
         changes (-> (pcb/empty-changes origin page-id)
                     (pcb/with-objects before)
@@ -265,13 +270,15 @@
                                   :affected-ids (:affected-ids proposal)}))
           (let [{:keys [changes]}
                 (prepare-object-diff it page-id current target-objects)
-                transaction-id (js/Symbol)]
-            (rx/of
-             (dwu/start-undo-transaction transaction-id)
-             (dch/commit-changes changes)
-             (when (seq parent-ids)
-               (ptk/data-event :layout/update {:ids parent-ids}))
-             (dwu/commit-undo-transaction transaction-id)
-             (ptk/data-event :ai/proposal-applied
-                             {:page-id page-id
-                              :affected-ids (:affected-ids proposal)}))))))))
+                transaction-id (js/Symbol)
+                events (cond-> [(dwu/start-undo-transaction transaction-id)
+                                (dch/commit-changes changes)]
+                         (seq parent-ids)
+                         (conj (ptk/data-event :layout/update {:ids parent-ids}))
+
+                         :always
+                         (conj (dwu/commit-undo-transaction transaction-id)
+                               (ptk/data-event :ai/proposal-applied
+                                               {:page-id page-id
+                                                :affected-ids (:affected-ids proposal)})))]
+            (rx/from events)))))))
