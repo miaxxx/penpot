@@ -23,6 +23,14 @@
    :required ["proposalId"]
    :additionalProperties false})
 
+(def proposal-list-input-schema
+  {:type "object"
+   :properties
+   {"fileId" {:type "string" :format "uuid"}
+    "pageId" {:type "string" :format "uuid"}}
+   :required ["fileId"]
+   :additionalProperties false})
+
 (def proposal-input-schema
   {:type "object"
    :properties
@@ -114,6 +122,17 @@
     :confirmation :required
     :result :proposal-id
     :input-schema proposal-input-schema}
+
+   :proposal.list
+   {:id :proposal.list
+    :version registry-version
+    :description "List active proposals owned by the authenticated actor for a file or page."
+    :access :read
+    :capability :proposal/read
+    :transports #{:internal :rpc :mcp :plugin}
+    :confirmation :none
+    :result :proposal-list
+    :input-schema proposal-list-input-schema}
 
    :proposal.get
    {:id :proposal.get
