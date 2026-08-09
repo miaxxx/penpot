@@ -12,10 +12,10 @@
    [app.common.time :as ct]
    [app.common.uuid :as uuid]
    [app.config :as cf]
-   [app.db :as db]))
+   [app.db :as db]
+   [clojure.string :as str]))
 
-(defn- check
-  [id ok? severity evidence]
+(defn- check [id ok? severity evidence]
   {:id id
    :status (if ok? :passed :failed)
    :severity severity
@@ -33,9 +33,11 @@
         workspace-bridge? (map? workspace-context)
         provider-ready?
         (and (map? provider-config)
-             (string? (:base-url provider-config))
-             (string? (:model provider-config)))
+             (not (str/blank? (:base-url provider-config)))
+             (not (str/blank? (:model provider-config))))
         registry-tools (tools/list-tools :internal)
+        native-commit-count
+        (count (filter #(= :canvas/commit (:capability %)) registry-tools))
         checks
         [(check :environment.feature-flag ai-enabled? :blocking
                 {:flag :ai-design-agent})
@@ -49,11 +51,11 @@
                 {:configured provider-ready?})
          (check :environment.mcp mcp-enabled? :warning
                 {:flag :mcp})
-         (check :environment.tool-registry (seq registry-tools) :blocking
+         (check :environment.tool-registry
+                (and (seq registry-tools) (= 1 native-commit-count))
+                :blocking
                 {:tool-count (count registry-tools)
-                 :native-commit-count
-                 (count (filter #(= :canvas/commit (:capability %))
-                                registry-tools) )})
+                 :native-commit-count native-commit-count})
          (check :environment.context-budget
                 (<= 2000 context-budget harness/max-context-budget)
                 :blocking
@@ -70,15 +72,14 @@
         status (cond blocking-failed? :blocked
                      warning-failed? :degraded
                      :else :healthy)
-        report
-        {:status status
-         :checked-at (ct/now)
-         :file-id file-id
-         :page-id (:page-id workspace)
-         :file-revision current-revision
-         :base-revision base-revision
-         :context-budget context-budget
-         :checks checks}]
+        report {:status status
+                :checked-at (ct/now)
+                :file-id file-id
+                :page-id (:page-id workspace)
+                :file-revision current-revision
+                :base-revision base-revision
+                :context-budget context-budget
+                :checks checks}]
     (db/insert! cfg :ai-harness-environment-snapshot
                 {:id (uuid/next)
                  :workspace-id workspace-id
