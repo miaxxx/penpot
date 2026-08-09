@@ -11,6 +11,7 @@
 
 (def valid-scope-types #{:selection :page :component})
 (def valid-origins #{:internal :rpc :mcp :plugin})
+(def valid-modes #{:generate :modify :refactor :adapt})
 
 (defn ensure-enabled!
   []
@@ -21,12 +22,21 @@
 
 (defn ensure-origin!
   [origin]
-  (let [origin (keyword origin)]
+  (let [origin (some-> origin keyword)]
     (when-not (contains? valid-origins origin)
       (ex/raise :type :validation
                 :code :invalid-ai-origin
                 :hint "AI operation origin is not supported"))
     origin))
+
+(defn ensure-mode!
+  [mode]
+  (let [mode (some-> mode keyword)]
+    (when-not (contains? valid-modes mode)
+      (ex/raise :type :validation
+                :code :invalid-ai-mode
+                :hint "AI mode must be generate, modify, refactor or adapt"))
+    mode))
 
 (defn ensure-read!
   [cfg profile-id file-id]
@@ -52,8 +62,13 @@
 
 (defn ensure-revision!
   [cfg file-id expected]
+  (when-not (integer? expected)
+    (ex/raise :type :validation
+              :code :invalid-ai-base-revision
+              :hint "proposal base revision must be an integer"))
   (let [current (current-revision cfg file-id)]
-    (when-not (= (long expected) (long current))
+    (when-not (and (integer? current)
+                   (= (long expected) (long current)))
       (ex/raise :type :validation
                 :code :ai-proposal-revision-conflict
                 :hint "proposal base revision does not match the current file"
@@ -72,6 +87,10 @@
 
 (defn ensure-scope!
   [scope]
+  (when-not (map? scope)
+    (ex/raise :type :validation
+              :code :invalid-ai-scope
+              :hint "scope must be an object"))
   (let [type (scope-type scope)
         root (scope-root scope)]
     (when-not (contains? valid-scope-types type)
@@ -90,7 +109,7 @@
 
 (defn ensure-owner!
   [profile-id proposal]
-  (when-not (= profile-id (:profile-id proposal))
+  (when-not (and proposal (= profile-id (:profile-id proposal)))
     ;; Preserve Penpot's not-found behavior so proposal existence is not leaked.
     (ex/raise :type :not-found
               :code :object-not-found
