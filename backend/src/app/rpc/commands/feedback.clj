@@ -5,7 +5,7 @@
 ;; Copyright (c) KALEIDOS INC Sucursal en España SL
 
 (ns app.rpc.commands.feedback
-  "A general purpose feedback module."
+  "A general purpose feedback module and AI RPC registration bridge."
   (:require
    [app.common.data :as d]
    [app.common.exceptions :as ex]
@@ -22,9 +22,10 @@
 
 (declare ^:private send-user-feedback!)
 
-;; The main RPC registry currently scans an explicit namespace list that already
-;; includes this namespace. Keep these registration shims small and delegate all
-;; behavior to app.rpc.commands.ai.
+;; The main RPC registry scans an explicit namespace list that includes this
+;; namespace. Keep registration shims small and delegate behavior to
+;; app.rpc.commands.ai.
+
 (sv/defmethod ::test-ai-provider
   {::doc/added "2.10"
    ::audit/skip true
@@ -123,6 +124,118 @@
   [cfg params]
   (ai/invoke-ai-mcp-tool cfg params))
 
+(sv/defmethod ::get-ai-harness
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params [:map {:closed true}]}
+  [cfg params]
+  (ai/get-ai-harness cfg params))
+
+(sv/defmethod ::install-ai-harness-skill
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:install-harness-package}
+  [cfg params]
+  (ai/install-ai-harness-skill cfg params))
+
+(sv/defmethod ::list-ai-harness-skills
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params [:map {:closed true}]}
+  [cfg params]
+  (ai/list-ai-harness-skills cfg params))
+
+(sv/defmethod ::set-ai-harness-skill-enabled
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-item-enabled}
+  [cfg params]
+  (ai/set-ai-harness-skill-enabled cfg params))
+
+(sv/defmethod ::delete-ai-harness-skill
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-item-id}
+  [cfg params]
+  (ai/delete-ai-harness-skill cfg params))
+
+(sv/defmethod ::install-ai-harness-plugin
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:install-harness-package}
+  [cfg params]
+  (ai/install-ai-harness-plugin cfg params))
+
+(sv/defmethod ::list-ai-harness-plugins
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params [:map {:closed true}]}
+  [cfg params]
+  (ai/list-ai-harness-plugins cfg params))
+
+(sv/defmethod ::set-ai-harness-plugin-enabled
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-item-enabled}
+  [cfg params]
+  (ai/set-ai-harness-plugin-enabled cfg params))
+
+(sv/defmethod ::delete-ai-harness-plugin
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-item-id}
+  [cfg params]
+  (ai/delete-ai-harness-plugin cfg params))
+
+(sv/defmethod ::create-ai-harness-session
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:create-harness-session}
+  [cfg params]
+  (ai/create-ai-harness-session cfg params))
+
+(sv/defmethod ::get-ai-harness-session
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-session-id}
+  [cfg params]
+  (ai/get-ai-harness-session cfg params))
+
+(sv/defmethod ::list-ai-harness-sessions
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:list-harness-sessions}
+  [cfg params]
+  (ai/list-ai-harness-sessions cfg params))
+
+(sv/defmethod ::update-ai-harness-session
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:update-harness-settings}
+  [cfg params]
+  (ai/update-ai-harness-session cfg params))
+
+(sv/defmethod ::close-ai-harness-session
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:harness-session-id}
+  [cfg params]
+  (ai/close-ai-harness-session cfg params))
+
+(sv/defmethod ::list-ai-harness-runs
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:list-harness-runs}
+  [cfg params]
+  (ai/list-ai-harness-runs cfg params))
+
+(sv/defmethod ::run-ai-harness-turn
+  {::doc/added "2.10"
+   ::audit/skip true
+   ::sm/params ai/schema:run-harness-turn}
+  [cfg params]
+  (ai/run-ai-harness-turn cfg params))
+
 (def ^:private schema:send-user-feedback
   [:map {:title "send-user-feedback"}
    [:subject [:string {:max 500}]]
@@ -139,7 +252,6 @@
     (ex/raise :type :restriction
               :code :feedback-disabled
               :hint "feedback not enabled"))
-
   (let [profile (profile/get-profile pool profile-id)]
     (send-user-feedback! pool profile params)
     nil))
@@ -148,13 +260,10 @@
   [pool profile params]
   (let [destination
         (or (cf/get :user-feedback-destination)
-            ;; LEGACY
             (cf/get :feedback-destination))
-
         attachments
         (d/without-nils
          {"error-report.txt" (:error-report params)})]
-
     (eml/send! {::eml/conn pool
                 ::eml/factory eml/user-feedback
                 :to destination
