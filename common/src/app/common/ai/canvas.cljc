@@ -45,6 +45,14 @@
 (def ^:private binding-keys
   [:applied-tokens :plugin-data])
 
+(defn- as-keyword
+  [value fallback]
+  (cond
+    (keyword? value) value
+    (string? value) (keyword value)
+    (nil? value) fallback
+    :else fallback))
+
 (defn semantic-id
   "Returns the stable AI semantic id when present, otherwise the Penpot UUID
   string. Shape plugin data follows Penpot's keyword -> string map contract."
@@ -227,7 +235,7 @@
   "Returns Penpot UUIDs readable/writable by a scope. Selection and component
   scopes include descendants; page scope includes all objects."
   [objects snapshot {:keys [type root-id rootId selection-ids selectionIds]}]
-  (let [type (keyword (name (or type :selection)))
+  (let [type (as-keyword type :selection)
         root-ref (or root-id rootId)
         selected (or selection-ids selectionIds [])
         roots (case type
@@ -288,8 +296,15 @@
               :or {node-limit default-node-limit
                    parent-depth default-parent-depth}}]
    (let [objects (:penpot snapshot)
-         scoped (take node-limit (:scope-ids snapshot))
-         parent-set (into #{} (mapcat #(parent-ids objects % parent-depth)) scoped)
+         scoped (->> (:scope-ids snapshot)
+                     (sort-by str)
+                     (take node-limit)
+                     vec)
+         parent-set (->> scoped
+                         (mapcat #(parent-ids objects % parent-depth))
+                         set
+                         (sort-by str)
+                         vec)
          nodes (:nodes snapshot)]
      {:snapshot-version snapshot-version
       :file-id (some-> (:file-id snapshot) str)
