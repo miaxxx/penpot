@@ -6,7 +6,9 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.main.data.workspace.ai.context :as ai-context]
+   [app.main.repo :as rp]
    [app.util.dom :as dom]
+   [beicon.v2.core :as rx]
    [rumext.v2 :as mf]))
 
 (def ^:private scope-options
@@ -49,23 +51,37 @@
         max-tokens* (mf/use-state "4096")
         status* (mf/use-state :idle)
 
+        on-success
+        (mf/use-fn
+         (fn [_]
+           (reset! status* :ok)))
+
+        on-error
+        (mf/use-fn
+         (fn [_]
+           (reset! status* :error)))
+
         on-test
         (mf/use-fn
          (fn [event]
            (dom/prevent-default event)
-           ;; The credential intentionally remains component-local. The backend
-           ;; proxy endpoint will consume it in a later integration PR.
-           (reset! status*
-                   (if (and (seq @base-url*) (seq @model*) (seq @api-key*))
-                     :proxy-required
-                     :missing-fields))))]
+           (if (and (seq @base-url*) (seq @model*) (seq @api-key*))
+             (do
+               (reset! status* :testing)
+               (->> (rp/cmd! :test-ai-provider
+                             {:provider @provider*
+                              :base-url @base-url*
+                              :api-key @api-key*
+                              :model @model*})
+                    (rx/subs! on-success on-error)))
+             (reset! status* :missing-fields))))]
     (when open?
       [:div {:class (stl/css :settings-panel)}
        [:div {:class (stl/css :section-heading)}
         [:div
          [:div {:class (stl/css :section-title)} "Provider settings"]
          [:div {:class (stl/css :section-subtitle)}
-          "Credentials are kept only in this panel state and are never written to the file."]]
+          "Credentials stay in memory for this panel session and are sent only to the Penpot backend proxy."]]
         [:button {:type "button"
                   :class (stl/css :icon-button)
                   :aria-label "Close provider settings"
@@ -77,9 +93,7 @@
         [:select {:value @provider*
                   :on-change #(reset! provider* (event-value %))}
          [:option {:value "openai-compatible"} "OpenAI Compatible"]
-         [:option {:value "openai"} "OpenAI"]
-         [:option {:value "anthropic"} "Anthropic"]
-         [:option {:value "custom"} "Custom"]]]
+         [:option {:value "openai"} "OpenAI"]]]
 
        [:label {:class (stl/css :field)}
         [:span {:class (stl/css :field-label)} "API base URL"]
@@ -120,17 +134,22 @@
 
        [:button {:type "button"
                  :class (stl/css :secondary-button)
+                 :disabled (= :testing @status*)
                  :on-click on-test}
-        "Test connection"]
+        (if (= :testing @status*) "Testing…" "Test connection")]
 
        (case @status*
          :missing-fields
          [:div {:class (stl/css :status-message :status-warning)}
           "Complete the base URL, model and API key first."]
 
-         :proxy-required
+         :ok
          [:div {:class (stl/css :status-message)}
-          "Settings are valid. Network testing remains blocked until the secure backend proxy endpoint is connected."]
+          "Connection successful. The key remains session-only."]
+
+         :error
+         [:div {:class (stl/css :status-message :status-warning)}
+          "Connection failed. Verify the provider URL, model access and credential."]
 
          nil)])))
 
