@@ -3,55 +3,231 @@
 ;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 (ns app.main.data.workspace.ai.execution
-  "Native Penpot Change transaction boundary for AI-generated shapes.
-
-  The model never calls this namespace. A validated compiler produces complete
-  Penpot shapes in parent-before-child order. Preview uses the local objects
-  snapshot returned by `prepare-add-objects`; apply commits the exact same
-  redo/undo pair through Penpot's existing persistence and Undo machinery."
+  "Native Penpot preview and atomic transaction boundary for AI proposals."
   (:require
+   [app.common.ai.canvas :as canvas]
+   [app.common.ai.compiler :as compiler]
+   [app.common.ai.normalize :as normalize]
+   [app.common.ai.patch :as patch]
+   [app.common.ai.validation :as validation]
    [app.common.files.changes-builder :as pcb]
+   [app.common.files.shapes-helpers :as cfsh]
+   [app.common.types.shape :as cts]
    [app.main.data.changes :as dch]
    [app.main.data.helpers :as dsh]
    [app.main.data.workspace.undo :as dwu]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
 
-(defn prepare-add-objects
-  "Builds native redo/undo changes and a temporary page-object snapshot.
+(def ^:private tree-attrs
+  #{:parent-id :frame-id :shapes})
 
-  `shapes` must already be validated Penpot shapes ordered parent-first. No
-  workspace state, persistence queue, collaboration history or undo stack is
-  touched by this function."
-  [origin page-id objects shapes]
-  (let [changes (-> (pcb/empty-changes origin page-id)
-                    (pcb/with-objects objects)
-                    (pcb/add-objects shapes))]
+(defn- object-depth
+  [objects id]
+  (loop [current id depth 0 seen #{}]
+    (let [parent-id (:parent-id (get objects current))]
+      (if (or (nil? parent-id)
+              (= current parent-id)
+              (contains? seen parent-id)
+              (nil? (get objects parent-id)))
+        depth
+        (recur parent-id (inc depth) (conj seen current))))))
+
+(defn- changed-attrs
+  [before after]
+  (->> (concat (keys before) (keys after))
+       set
+       (remove tree-attrs)
+       (filter #(not= (get before %) (get after %)))
+       set))
+
+(defn- validate-result-shapes!
+  [before after diff]
+  (doseq [id (concat (:created diff) (keys (:modified diff)))]
+    (when-let [shape (get after id)]
+      (cts/check-shape shape)))
+  after)
+
+(defn- apply-removals
+  [changes before removed]
+  (if (seq removed)
+    (let [ids (sort-by #(object-depth before %) > removed)]
+      (pcb/remove-objects changes ids {:ignore-touched false}))
+    changes))
+
+(defn- apply-additions
+  [changes after created]
+  (reduce
+   (fn [changes id]
+     (let [shape (get after id)
+           objects (pcb/lookup-objects changes)
+           [_ changes] (cfsh/prepare-add-shape changes shape objects)]
+       changes))
+   changes
+   (sort-by #(object-depth after %) created)))
+
+(defn- apply-moves
+  [changes after moved]
+  (reduce
+   (fn [changes id]
+     (let [objects (pcb/lookup-objects changes)
+           shape (get objects id)
+           destination (get after id)
+           parent-id (:parent-id destination)
+           parent (get after parent-id)
+           index (first (keep-indexed (fn [index child-id]
+                                        (when (= id child-id) index))
+                                      (:shapes parent)))]
+       (if (and shape parent-id)
+         (pcb/change-parent changes parent-id [shape] index
+                            {:ignore-touched true})
+         changes)))
+   changes
+   (sort-by #(object-depth after %) moved)))
+
+(defn- apply-modifications
+  [changes before after modified created removed]
+  (reduce-kv
+   (fn [changes id _]
+     (if (or (contains? created id)
+             (contains? removed id))
+       changes
+       (let [old (get before id)
+             new (get after id)
+             attrs (changed-attrs old new)]
+         (if (seq attrs)
+           (pcb/update-shapes changes [id] (constantly new)
+                              {:attrs attrs
+                               :ignore-touched true})
+           changes))))
+   changes
+   modified))
+
+(defn prepare-object-diff
+  "Compiles an in-memory before/after object graph into native Penpot redo and
+  undo changes. No workspace state or collaboration history is mutated."
+  [origin page-id before after]
+  (let [diff (patch/diff-objects before after)
+        _ (validate-result-shapes! before after diff)
+        changes (-> (pcb/empty-changes origin page-id)
+                    (pcb/with-objects before)
+                    (apply-removals before (:removed diff))
+                    (apply-additions after (:created diff))
+                    (apply-moves after (:moved diff))
+                    (apply-modifications before after (:modified diff)
+                                         (:created diff) (:removed diff)))
+        affected (into #{}
+                       (concat (:created diff)
+                               (:removed diff)
+                               (:moved diff)
+                               (keys (:modified diff))))
+        parent-ids (into #{}
+                         (keep (fn [id]
+                                 (or (:parent-id (get after id))
+                                     (:parent-id (get before id)))))
+                         affected)]
     {:changes changes
      :objects (pcb/lookup-objects changes)
-     :summary {:created (count shapes)
-               :modified 0
-               :removed 0
-               :parent-ids (into #{} (keep :parent-id) shapes)}}))
+     :target-objects after
+     :base-objects (select-keys before (into affected parent-ids))
+     :affected-ids affected
+     :parent-ids parent-ids
+     :diff diff}))
 
-(defn apply-add-objects
-  "Commits a previously validated set of shapes as one AI undo transaction.
+(defn proposal-from-document
+  [{:keys [file-id page-id revision objects scope document parent-id
+           parent-frame-id registry]}]
+  (let [validated (validation/validate-document document)]
+    (if-not (:valid? validated)
+      {:valid? false :errors (:errors validated) :warnings (:warnings validated)}
+      (let [snapshot (canvas/build-snapshot
+                      {:file-id file-id
+                       :page-id page-id
+                       :revision revision
+                       :objects objects
+                       :scope scope})
+            compiled (compiler/compile-document
+                      (:ir validated)
+                      {:parent-id parent-id
+                       :parent-frame-id parent-frame-id
+                       :registry registry})]
+        (if-not (:valid? compiled)
+          {:valid? false :errors (:errors compiled) :warnings (:warnings compiled)}
+          (let [root-id (first (:root-ids compiled))
+                parent (get objects parent-id)
+                after (reduce (fn [result shape]
+                                (assoc result (:id shape) shape))
+                              objects
+                              (:shapes compiled))
+                after (if parent
+                        (update-in after [parent-id :shapes]
+                                   (fn [children]
+                                     (conj (vec (or children [])) root-id)))
+                        after)
+                prepared (prepare-object-diff ::document page-id objects after)]
+            (merge prepared
+                   {:valid? true
+                    :type :document
+                    :snapshot snapshot
+                    :semantic-index (:semantic-index compiled)
+                    :warnings (:warnings compiled)
+                    :errors []})))))))
 
-  This event intentionally rebuilds the change set from current objects at
-  apply time. The caller must perform revision/scope conflict validation before
-  emitting it; stale proposals must not reach this boundary."
-  [{:keys [page-id shapes]}]
-  (ptk/reify ::apply-add-objects
+(defn proposal-from-patch
+  [{:keys [file-id page-id revision objects patch registry]}]
+  (let [validated (validation/validate-patch patch)]
+    (if-not (:valid? validated)
+      {:valid? false :errors (:errors validated) :warnings (:warnings validated)}
+      (let [patch-ir (:ir validated)
+            snapshot (canvas/build-snapshot
+                      {:file-id file-id
+                       :page-id page-id
+                       :revision revision
+                       :objects objects
+                       :scope (:scope patch-ir)})
+            compiled (compiler/compile-patch snapshot patch-ir :registry registry)]
+        (if-not (:valid? compiled)
+          {:valid? false :errors (:errors compiled) :warnings (:warnings compiled)}
+          (merge (prepare-object-diff ::patch page-id objects (:objects compiled))
+                 {:valid? true
+                  :type :patch
+                  :snapshot snapshot
+                  :warnings (:warnings compiled)
+                  :errors []}))))))
+
+(defn proposal-stale?
+  [current-objects {:keys [base-objects affected-ids]}]
+  (or
+   (some (fn [[id object]]
+           (not= object (get current-objects id)))
+         base-objects)
+   (some (fn [id]
+           (and (not (contains? base-objects id))
+                (contains? current-objects id)))
+         affected-ids)))
+
+(defn apply-proposal
+  "Revalidates the proposal against current canvas objects and commits all
+  native changes as one Undo transaction. A stale proposal emits an explicit
+  conflict event and never writes partial changes."
+  [{:keys [page-id target-objects parent-ids] :as proposal}]
+  (ptk/reify ::apply-proposal
     ptk/WatchEvent
     (watch [it state _]
-      (let [objects (dsh/lookup-page-objects state page-id)
-            {:keys [changes summary]}
-            (prepare-add-objects it page-id objects shapes)
-            transaction-id (js/Symbol)
-            parent-ids (:parent-ids summary)]
-        (rx/of
-         (dwu/start-undo-transaction transaction-id)
-         (dch/commit-changes changes)
-         (when (seq parent-ids)
-           (ptk/data-event :layout/update {:ids parent-ids}))
-         (dwu/commit-undo-transaction transaction-id))))))
+      (let [current (dsh/lookup-page-objects state page-id)]
+        (if (proposal-stale? current proposal)
+          (rx/of (ptk/data-event :ai/proposal-conflict
+                                 {:page-id page-id
+                                  :affected-ids (:affected-ids proposal)}))
+          (let [{:keys [changes]}
+                (prepare-object-diff it page-id current target-objects)
+                transaction-id (js/Symbol)]
+            (rx/of
+             (dwu/start-undo-transaction transaction-id)
+             (dch/commit-changes changes)
+             (when (seq parent-ids)
+               (ptk/data-event :layout/update {:ids parent-ids}))
+             (dwu/commit-undo-transaction transaction-id)
+             (ptk/data-event :ai/proposal-applied
+                             {:page-id page-id
+                              :affected-ids (:affected-ids proposal)}))))))))
