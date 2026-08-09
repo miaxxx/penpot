@@ -30,3 +30,21 @@
         apply-tool (first (filter #(= :proposal.request-apply (:id %)) tools))]
     (t/is (= :penpot-ui (:confirmation apply-tool)))
     (t/is (= :proposal-id (:result apply-tool)))))
+
+(t/deftest mcp-can-read-repository-harness-state
+  (let [tools (:tools (mcp/list-tools))
+        ids (into #{} (map :id) tools)]
+    (t/is (contains? ids :harness.workspace.ensure))
+    (t/is (contains? ids :harness.artifacts.list))
+    (t/is (contains? ids :harness.artifact.get))
+    (t/is (contains? ids :harness.run.latest))
+    (t/is (contains? ids :harness.checks.list))
+    (t/is (contains? ids :harness.checks.results))))
+
+(t/deftest mcp-cannot-submit-evidence-or-complete-runs
+  (let [tools (:tools (mcp/list-tools))
+        ids (into #{} (map :id) tools)]
+    (t/is (not (contains? ids :harness.checks.run)))
+    (t/is (not (contains? ids :harness.run.complete)))
+    (t/is (not (contains? ids :harness.run.update)))
+    (t/is (every? #(not= :canvas/commit (:capability %)) tools))))
