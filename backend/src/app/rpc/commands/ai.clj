@@ -23,7 +23,7 @@
 
 (defn test-ai-provider
   [cfg {:keys [provider] :as params}]
-  (when (contains? cf/flags :disable-ai-design-agent)
+  (when-not (contains? cf/flags :ai-design-agent)
     (ex/raise :type :restriction
               :code :ai-design-agent-disabled
               :hint "AI Design Agent is disabled"))
