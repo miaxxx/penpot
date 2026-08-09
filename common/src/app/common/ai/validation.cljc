@@ -114,14 +114,30 @@
                   (map-indexed vector (:operations operation))))]
     (vec (concat unsupported missing-errors nested-errors))))
 
+(defn- validate-patch-nodes
+  [operations path]
+  (mapcat
+   (fn [[index operation]]
+     (let [operation-path (conj path index)
+           node-errors (when-let [node (:node operation)]
+                         (validate-node node (conj operation-path :node) 0))
+           nested-errors (when-let [children (:operations operation)]
+                           (validate-patch-nodes children
+                                                 (conj operation-path :operations)))]
+       (concat node-errors nested-errors)))
+   (map-indexed vector operations)))
+
 (defn validate-patch
   [dsl]
   (let [schema-errors
         (when-not (schema/valid-patch? dsl)
           [(error :invalid-patch [] "Patch DSL does not match schema"
                   (schema/explain-patch dsl))])
-        normalized
+        node-errors
         (when (empty? schema-errors)
+          (validate-patch-nodes (:operations dsl) [:operations]))
+        normalized
+        (when (empty? (concat schema-errors node-errors))
           (normalize/normalize-patch dsl))
         operation-errors
         (when normalized
@@ -134,7 +150,7 @@
                    (nil? (get-in normalized [:scope :root-id])))
           [(error :missing-scope-root [:scope :root-id]
                   "Selection-scoped patches require a root id")])
-        errors (vec (concat schema-errors operation-errors scope-errors))]
+        errors (vec (concat schema-errors node-errors operation-errors scope-errors))]
     {:valid? (empty? errors)
      :errors errors
      :warnings []
