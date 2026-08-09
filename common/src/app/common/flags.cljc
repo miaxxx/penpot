@@ -46,6 +46,7 @@
     ;; Used with PENPOT_REGISTRATION_DOMAIN_WHITELIST
     :email-whitelist
     ;; Prevents the domains in blacklist to register in the application.
+    ;; Used with PENPOT_REGISTRATION_DOMAIN_BLACKLIST
     :email-blacklist
     ;; Skips the email verification process. Not recommended for production environments.
     :email-verification
