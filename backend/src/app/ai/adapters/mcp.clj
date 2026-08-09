@@ -43,7 +43,7 @@
   [tool]
   (select-keys tool
                [:id :version :description :access :capability
-                :confirmation :result]))
+                :confirmation :result :input-schema]))
 
 (defn list-tools
   []
