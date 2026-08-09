@@ -4,7 +4,6 @@
 
 (ns app.ai.providers.openai-compatible
   (:require
-   [app.ai.providers.protocol :as-alias provider]
    [app.ai.providers.protocol :refer [Provider]]
    [app.ai.secrets :as secrets]
    [app.common.exceptions :as ex]
@@ -23,7 +22,8 @@
                 :code :invalid-ai-credential
                 :hint "invalid AI provider credential"))
 
-    ;; app.http.client applies SSRF validation to the initial URL and redirects.
+    ;; app.http.client validates the initial URI and every redirect target
+    ;; against the SSRF blocklist. Never bypass this for user-provided URLs.
     (let [response
           (http/req-with-redirects
            cfg
