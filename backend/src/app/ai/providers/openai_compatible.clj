@@ -7,6 +7,7 @@
    [app.ai.providers.protocol :refer [Provider]]
    [app.ai.secrets :as secrets]
    [app.common.exceptions :as ex]
+   [app.common.time :as ct]
    [app.http.client :as http]
    [clojure.string :as str]))
 
@@ -31,7 +32,7 @@
             :uri (models-uri base-url)
             :headers {"accept" "application/json"
                       "authorization" (str "Bearer " api-key)}
-            :timeout 15000}
+            :timeout (ct/duration "15s")}
            {:max-redirects 2})
           status (:status response)]
       (when-not (<= 200 status 299)
