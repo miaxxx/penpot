@@ -203,7 +203,7 @@
 
 (defn- ai-enabled?
   []
-  (not (contains? cf/flags :disable-ai-design-agent)))
+  (contains? cf/flags :ai-design-agent))
 
 (defn- options-tabs
   []
