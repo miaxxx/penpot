@@ -701,6 +701,15 @@
           "snapshot"
           (respond! message (snapshot))
 
+          "reset"
+          (let [objects (dsh/lookup-page-objects @st/state)
+                root-ids (set (get-in objects [uuid/zero :shapes]))]
+            (when (seq root-ids)
+              (st/emit! (dwsh/delete-shapes root-ids)))
+            (st/emit! (dws/select-shapes (d/ordered-set)))
+            (respond-next-tick! message (fn [] {:revision @revision*
+                                                :snapshot (snapshot)})))
+
           "set-tool"
           (let [tool (some-> (get-in message [:payload :tool]) keyword)]
             (when-not (contains? #{:select :frame :rect :circle :line :path :curve :text :hand :comments :scale}
@@ -960,6 +969,7 @@
       (reset! listener* handler)
       (post! {:type "bridge-ready"
               :capabilities ["snapshot"
+                             "reset"
                              "render"
                              "export"
                              "set-tool"
