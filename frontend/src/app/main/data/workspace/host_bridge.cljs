@@ -15,6 +15,7 @@
    [app.common.data.macros :as dm]
    [app.common.geom.point :as gpt]
    [app.common.types.path :as path]
+   [app.common.types.path.impl :as path.impl]
    [app.common.types.shape :as cts]
    [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
@@ -262,18 +263,45 @@
 
 (defn- path-content
   [node-type props]
-  (let [points (->> (:points props)
-                    (keep point-value)
-                    (into []))
-        points (if (>= (count points) 2)
-                 points
-                 (let [x (or (:x props) 0)
-                       y (or (:y props) 0)
-                       width (or (:width props) 100)
-                       height (or (:height props) 0)]
-                   [(gpt/point x y)
-                    (gpt/point (+ x width) (+ y height))]))]
-    (path/points->content points :close (= node-type "path-closed"))))
+  (if (seq (:segments props))
+    (let [segments
+          (mapv
+           (fn [{:keys [command params x y to c1 c2]}]
+             (let [command (keyword command)
+                   params (or params
+                              (case command
+                                :move-to {:x x :y y}
+                                :line-to {:x x :y y}
+                                :curve-to {:c1x (or (:x c1) (first c1))
+                                           :c1y (or (:y c1) (second c1))
+                                           :c2x (or (:x c2) (first c2))
+                                           :c2y (or (:y c2) (second c2))
+                                           :x (or (:x to) (first to))
+                                           :y (or (:y to) (second to))}
+                                {}))]
+               (case command
+                 :move-to {:command :move-to :params params}
+                 :line-to {:command :line-to :params params}
+                 :curve-to {:command :curve-to :params params}
+                 :close-path {:command :close-path}
+                 (throw (js/Error. (str "Unsupported path segment: " command)))))
+           (:segments props))]
+      (when-not (and (>= (count segments) 2)
+                     (= :move-to (:command (first segments))))
+        (throw (js/Error. "Path segments must begin with move-to and contain at least two segments")))
+      (path.impl/from-plain segments))
+    (let [points (->> (:points props)
+                      (keep point-value)
+                      (into []))
+          points (if (>= (count points) 2)
+                   points
+                   (let [x (or (:x props) 0)
+                         y (or (:y props) 0)
+                         width (or (:width props) 100)
+                         height (or (:height props) 0)]
+                     [(gpt/point x y)
+                      (gpt/point (+ x width) (+ y height))]))]
+      (path/points->content points :close (= node-type "path-closed")))))
 
 (defn- path-strokes
   [node-type props]
