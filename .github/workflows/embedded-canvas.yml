@@ -51,6 +51,11 @@ jobs:
             src/app/main/data/workspace/host_bridge.cljs \
             src/app/main/ui/workspace/sidebar/ai/panel.cljs
 
+      - name: Build Penpot WASM renderer
+        working-directory: ./frontend
+        run: |
+          pnpm run build:wasm
+
       - name: Compile Penpot frontend
         working-directory: ./frontend
         env:
