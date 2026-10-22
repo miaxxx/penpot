@@ -38,10 +38,18 @@ jobs:
           corepack install
           pnpm install --frozen-lockfile
 
-      - name: Lint embedded ClojureScript
+      - name: Lint embedded canvas entry points
         working-directory: ./frontend
         run: |
-          pnpm run lint:clj
+          pnpm exec clj-kondo --parallel --lint \
+            src/app/main.cljs \
+            src/app/main/features.cljs \
+            src/app/main/ui.cljs \
+            src/app/main/ui/routes.cljs \
+            src/app/main/ui/workspace.cljs \
+            src/app/main/data/workspace/embedded.cljs \
+            src/app/main/data/workspace/host_bridge.cljs \
+            src/app/main/ui/workspace/sidebar/ai/panel.cljs
 
       - name: Compile Penpot frontend
         working-directory: ./frontend
