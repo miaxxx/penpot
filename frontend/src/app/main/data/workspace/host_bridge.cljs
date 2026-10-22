@@ -19,6 +19,9 @@
    [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
    [app.main.data.helpers :as dsh]
+   [app.main.data.workspace.bool :as dwb]
+   [app.main.data.workspace.groups :as dwg]
+   [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.selection :as dws]
    [app.main.data.workspace.shape-layout :as dwsl]
    [app.main.data.workspace.shapes :as dwsh]
@@ -196,6 +199,32 @@
   (into (d/ordered-set)
         (keep uuid/parse*)
         ids))
+
+(defn- select-event
+  [state payload]
+  (let [ids (parse-ids (:ids payload))
+        mode (keyword (or (:mode payload) "replace"))
+        current (or (dm/get-in state [:workspace-local :selected]) (d/ordered-set))
+        selected
+        (case mode
+          :add
+          (into current ids)
+
+          :remove
+          (into (d/ordered-set)
+                (remove (set ids))
+                current)
+
+          :toggle
+          (reduce (fn [result id]
+                    (if (contains? result id)
+                      (disj result id)
+                      (conj result id)))
+                  current
+                  ids)
+
+          ids)]
+    (dws/select-shapes selected)))
 
 (defn- node-type
   [value]
@@ -502,8 +531,8 @@
                              (mapv str (dm/get-in @st/state [:workspace-local :selected]))})
 
           "select"
-          (let [ids (parse-ids (get-in message [:payload :ids]))]
-            (st/emit! (dws/select-shapes ids))
+          (do
+            (st/emit! (select-event @st/state (:payload message)))
             (respond-next-tick! message
                                 (fn [] {:selectedIds
                                         (mapv str (dm/get-in @st/state [:workspace-local :selected]))})))
@@ -548,6 +577,78 @@
           "layout"
           (do
             (emit-mutation! (layout-events @st/state (:payload message)))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
+          "group"
+          (let [payload (:payload message)
+                ids (vec (parse-ids (:ids payload)))
+                group-id (uuid/next)]
+            (when (empty? ids)
+              (throw (js/Error. "Group requires at least one valid shape id")))
+            (st/emit! (dwg/group-shapes group-id ids :change-selection? true))
+            (respond-next-tick! message
+                                (fn [] {:createdId (str group-id)
+                                        :revision @revision*})))
+
+          "ungroup"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Ungroup requires at least one valid shape id")))
+            (st/emit! (dwg/ungroup-shapes ids :change-selection? true))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
+          "mask"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Mask requires at least one valid shape id")))
+            (st/emit! (dwg/mask-group ids))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
+          "unmask"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Unmask requires at least one valid shape id")))
+            (st/emit! (dwg/unmask-group ids))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
+          "boolean"
+          (let [payload (:payload message)
+                ids (vec (parse-ids (:ids payload)))
+                operation (some-> (:operation payload) keyword)
+                bool-id (uuid/next)]
+            (when-not (contains? #{:union :difference :intersection :exclude :exclusion} operation)
+              (throw (js/Error. (str "Unsupported boolean operation: " (:operation payload)))))
+            (when (empty? ids)
+              (throw (js/Error. "Boolean operation requires valid shape ids")))
+            (let [operation (if (= operation :exclusion) :exclude operation)]
+              (st/emit! (dwb/create-bool operation :ids ids :force-shape-id bool-id)))
+            (respond-next-tick! message
+                                (fn [] {:createdId (str bool-id)
+                                        :revision @revision*})))
+
+          "componentize"
+          (let [payload (:payload message)
+                ids (vec (parse-ids (:ids payload)))
+                component-id* (atom nil)]
+            (when (empty? ids)
+              (throw (js/Error. "Componentize requires valid shape ids")))
+            (st/emit! (dwl/add-component component-id* ids))
+            (js/setTimeout
+             (fn []
+               (when-let [component-id @component-id*]
+                 (when-let [name (:name payload)]
+                   (st/emit! (dwl/rename-component-and-main-instance component-id name))))
+               (respond-next-tick!
+                message
+                (fn [] {:componentId (some-> @component-id* str)
+                        :revision @revision*})))
+             0))
+
+          "detach-component"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Detach component requires valid shape ids")))
+            (st/emit! (dwl/detach-components ids))
             (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "transaction-start"
@@ -656,6 +757,13 @@
                              "delete"
                              "reparent"
                              "layout"
+                             "group"
+                             "ungroup"
+                             "mask"
+                             "unmask"
+                             "boolean"
+                             "componentize"
+                             "detach-component"
                              "transaction-start"
                              "transaction-commit"
                              "undo"
