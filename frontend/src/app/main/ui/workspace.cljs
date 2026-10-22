@@ -15,6 +15,7 @@
    [app.main.data.plugins :as dpl]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.embedded :as dw-embedded]
+   [app.main.data.workspace.host-bridge :as host-bridge]
    [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.router :as-alias rt]
@@ -309,6 +310,12 @@
         project-id (mf/use-memo #(uuid/next))
         file-id    (mf/use-memo #(uuid/next))
         page-id    (mf/use-memo #(uuid/next))]
+
+    (mf/with-effect []
+      (host-bridge/start!)
+      (fn []
+        (host-bridge/stop!)))
+
     [:> workspace*
      {:team-id team-id
       :project-id project-id
