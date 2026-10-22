@@ -413,7 +413,7 @@
                                                :width (:width shape)
                                                :height (:height shape)}
                                               patch)))
-        closed-path? (or (contains? patch :closed) (:closed patch)
+        closed-path? (or (true? (:closed patch))
                          (some #(= :close-path (keyword (:command %))) (:segments patch)))
         shape
         (cond-> shape
