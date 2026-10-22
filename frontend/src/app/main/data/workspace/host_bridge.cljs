@@ -22,12 +22,14 @@
    [app.main.data.helpers :as dsh]
    [app.main.data.workspace.bool :as dwb]
    [app.main.data.workspace.groups :as dwg]
+   [app.main.data.workspace.drawing :as dwd]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.selection :as dws]
    [app.main.data.workspace.shape-layout :as dwsl]
    [app.main.data.workspace.shapes :as dwsh]
    [app.main.data.workspace.transforms :as dwt]
    [app.main.data.workspace.undo :as dwu]
+   [app.main.data.workspace.zoom :as dwz]
    [app.main.store :as st]
    [app.render-wasm.api :as wasm.api]))
 
@@ -659,6 +661,38 @@
           "snapshot"
           (respond! message (snapshot))
 
+          "set-tool"
+          (let [tool (some-> (get-in message [:payload :tool]) keyword)]
+            (when-not (contains? #{:select :frame :rect :circle :line :path :curve :text :hand :comments :scale}
+                                 tool)
+              (throw (js/Error. (str "Unsupported canvas tool: " tool))))
+            (st/emit! (dwd/select-for-drawing tool))
+            (respond-next-tick! message (fn [] {:tool (name tool)})))
+
+          "viewport-fit-all"
+          (do
+            (st/emit! dwz/zoom-to-fit-all)
+            (respond-next-tick! message {:accepted true}))
+
+          "viewport-fit-selection"
+          (do
+            (st/emit! dwz/zoom-to-selected-shape)
+            (respond-next-tick! message {:accepted true}))
+
+          "viewport-fit"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Viewport fit requires at least one shape id")))
+            (st/emit! (dwz/fit-to-shapes ids))
+            (respond-next-tick! message {:accepted true}))
+
+          "viewport-set-zoom"
+          (let [scale (get-in message [:payload :scale])]
+            (when-not (and (number? scale) (pos? scale))
+              (throw (js/Error. "Zoom scale must be a positive number")))
+            (st/emit! (dwz/set-zoom scale))
+            (respond-next-tick! message {:scale scale}))
+
           "render"
           (respond-next-tick! message (render-shape (:payload message)))
 
@@ -888,6 +922,11 @@
               :capabilities ["snapshot"
                              "render"
                              "export"
+                             "set-tool"
+                             "viewport-fit-all"
+                             "viewport-fit-selection"
+                             "viewport-fit"
+                             "viewport-set-zoom"
                              "selection"
                              "select"
                              "create"
