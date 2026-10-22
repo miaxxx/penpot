@@ -29,6 +29,7 @@
   [features state]
   (let [wasm-override (-> (rt/get-params state)
                           (get :wasm))
+        embedded-workspace? (= :embedded-workspace (rt/lookup-name state))
 
         ;; When the :render-switch feature flag is active, read the user's
         ;; preferred renderer from their profile settings (default :svg).
@@ -36,8 +37,14 @@
                         (dm/get-in state [:profile :props :renderer] :svg))
 
         features      (cond
+                        ;; Embedded canvas is a Skia/WASM runtime by contract.
+                        ;; Do not let account/profile renderer preferences leak
+                        ;; into host applications.
+                        embedded-workspace?
+                        (conj features "render-wasm/v1")
+
                         ;; Priority 1 — URL query param (?wasm=true|false)
-                        ;; overrides everything: user profile and team flags.
+                        ;; overrides normal workspace profile/team settings.
                         (= "true" wasm-override)
                         (conj features "render-wasm/v1")
 
