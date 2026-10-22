@@ -405,6 +405,16 @@
   (let [text-patch? (and (= :text (:type shape))
                          (some #(contains? patch %)
                                [:text :fontSize :fontWeight :fontFamily :fill :fillOpacity]))
+        path-patch? (and (= :path (:type shape))
+                         (some #(contains? patch %) [:points :segments]))
+        path-geometry (when (and path-patch? (contains? patch :points))
+                        (path-geometry (merge {:x (:x shape)
+                                               :y (:y shape)
+                                               :width (:width shape)
+                                               :height (:height shape)}
+                                              patch)))
+        closed-path? (or (contains? patch :closed) (:closed patch)
+                         (some #(= :close-path (keyword (:command %))) (:segments patch)))
         shape
         (cond-> shape
           (contains? patch :name)
@@ -447,6 +457,15 @@
 
           (contains? patch :radius)
           (merge (radius-patch (:radius patch)))
+
+          path-geometry
+          (merge path-geometry)
+
+          path-patch?
+          (assoc :content (path-content (if closed-path? "path-closed" "path") patch)
+                 :fills (if closed-path?
+                          (or (normalize-fill (:fill patch) (:fillOpacity patch)) (:fills shape) [])
+                          []))
 
           text-patch?
           (assoc :content
