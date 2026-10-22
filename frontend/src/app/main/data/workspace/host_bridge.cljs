@@ -805,6 +805,20 @@
             (emit-mutation! [(rotate-event (:payload message))])
             (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
+          "flip-horizontal"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Flip horizontal requires valid shape ids")))
+            (st/emit! (dwt/flip-horizontal-selected ids))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
+          "flip-vertical"
+          (let [ids (vec (parse-ids (get-in message [:payload :ids])))]
+            (when (empty? ids)
+              (throw (js/Error. "Flip vertical requires valid shape ids")))
+            (st/emit! (dwt/flip-vertical-selected ids))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
+
           "duplicate"
           (let [payload (:payload message)
                 ids (vec (parse-ids (:ids payload)))
@@ -1030,6 +1044,8 @@
                              "move"
                              "resize"
                              "rotate"
+                             "flip-horizontal"
+                             "flip-vertical"
                              "delete"
                              "reparent"
                              "layout"
