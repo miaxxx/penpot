@@ -283,7 +283,7 @@
         :stroke-cap-start (some-> (:startCap props) keyword)
         :stroke-cap-end (some-> (:endCap props) keyword)}]
 
-      :else nil))
+      :else nil)))
 
 (defn- update-strokes
   [strokes patch]
@@ -458,7 +458,7 @@
                   :font-family (or (:fontFamily patch) "sourcesanspro")
                   :font-id (or (:fontId patch) "sourcesanspro")
                   :fills (or (normalize-fill (:fill patch) (:fillOpacity patch))
-                             (txt/get-default-text-fills))))]
+                             (txt/get-default-text-fills)))))]
     shape))
 
 (defn- create-shape-event
