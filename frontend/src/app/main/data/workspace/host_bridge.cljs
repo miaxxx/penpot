@@ -27,7 +27,8 @@
    [app.main.data.workspace.shapes :as dwsh]
    [app.main.data.workspace.transforms :as dwt]
    [app.main.data.workspace.undo :as dwu]
-   [app.main.store :as st]))
+   [app.main.store :as st]
+   [app.render-wasm.api :as wasm.api]))
 
 (def channel "nowgen:canvas:v1")
 
@@ -526,6 +527,12 @@
           "snapshot"
           (respond! message (snapshot))
 
+          "render"
+          (respond-next-tick! message (render-shape (:payload message)))
+
+          "export"
+          (respond-next-tick! message (render-shape (:payload message)))
+
           "selection"
           (respond! message {:selectedIds
                              (mapv str (dm/get-in @st/state [:workspace-local :selected]))})
@@ -687,6 +694,38 @@
           (respond-error! message "KERNEL_ERROR"
                           (or (.-message cause) (str cause))))))))
 
+(defn- bytes->base64
+  [bytes]
+  (let [length (.-length bytes)]
+    (loop [offset 0
+           chunks []]
+      (if (>= offset length)
+        (apply str chunks)
+        (let [end (min length (+ offset 24576))
+              binary (apply str
+                            (map (fn [index]
+                                   (js/String.fromCharCode (aget bytes index)))
+                                 (range offset end)))]
+          (recur end (conj chunks (.btoa js/window binary))))))))
+
+(defn- render-shape
+  [payload]
+  (let [object-id (parse-id (:objectId payload))
+        format (keyword (or (:format payload) "png"))
+        scale (or (:scale payload) 1)]
+    (when-not object-id
+      (throw (js/Error. "Render requires a valid objectId")))
+    (when-not (and (number? scale) (pos? scale) (<= scale 8))
+      (throw (js/Error. "Render scale must be between 0 and 8")))
+    (let [[bytes mime]
+          (case format
+            :png [(wasm.api/render-shape-pixels object-id scale) "image/png"]
+            :pdf [(wasm.api/render-shape-pdf object-id scale) "application/pdf"]
+            (throw (js/Error. (str "Unsupported render format: " format))))]
+      {:format (name format)
+       :mimeType mime
+       :base64 (bytes->base64 bytes)})))
+
 (defn- page-objects
   [state]
   (let [file-id (:current-file-id state)
@@ -747,6 +786,8 @@
       (reset! listener* handler)
       (post! {:type "bridge-ready"
               :capabilities ["snapshot"
+                             "render"
+                             "export"
                              "selection"
                              "select"
                              "create"
