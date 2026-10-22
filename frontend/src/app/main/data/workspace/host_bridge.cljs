@@ -38,6 +38,7 @@
 (defonce ^:private listener* (atom nil))
 (defonce ^:private revision* (atom 0))
 (defonce ^:private transactions* (atom {}))
+(defonce ^:private allowed-origin* (atom nil))
 (def ^:private state-watch-key ::embedded-host-state-watch)
 
 (defn- uuid-str [value]
@@ -163,12 +164,13 @@
   (let [parent (.-parent js/window)
         target (if (identical? js/window parent)
                  js/window
-                 parent)]
+                 parent)
+        target-origin (or @allowed-origin* (.-origin (.-location js/window)))]
     (.postMessage target
                   (clj->js (assoc payload
                                   :channel channel
                                   :source "canvas"))
-                  "*")))
+                  target-origin)))
 
 (defn- respond!
   [request data]
@@ -710,7 +712,9 @@
   (let [raw (.-data event)
         message (when raw (js->clj raw :keywordize-keys true))]
     (when (and (= channel (:channel message))
-               (= "host" (:source message)))
+               (= "host" (:source message))
+               (= @allowed-origin* (.-origin event))
+               (identical? (.-parent js/window) (.-source event)))
       (try
         (case (:type message)
           "ping"
@@ -1017,11 +1021,22 @@
       (post! {:type "tool-changed"
               :tool new-tool}))))
 
+(defn- host-origin
+  []
+  (let [referrer (.-referrer js/document)]
+    (if (seq referrer)
+      (try
+        (.-origin (js/URL. referrer))
+        (catch :default _
+          (.-origin (.-location js/window))))
+      (.-origin (.-location js/window)))))
+
 (defn start!
   []
   (when-not @listener*
     (reset! revision* 0)
     (reset! transactions* {})
+    (reset! allowed-origin* (host-origin))
     (let [handler (fn [event] (handle-message! event))]
       (.addEventListener js/window "message" handler)
       (add-watch st/state state-watch-key observe-workspace-state!)
@@ -1067,4 +1082,5 @@
     (.removeEventListener js/window "message" handler)
     (remove-watch st/state state-watch-key)
     (reset! transactions* {})
+    (reset! allowed-origin* nil)
     (reset! listener* nil)))
