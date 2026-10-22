@@ -1,0 +1,67 @@
+name: "CI: Embedded Canvas"
+
+on:
+  push:
+    branches:
+      - agent/embedded-canvas
+    paths:
+      - 'frontend/**'
+      - 'common/**'
+      - 'render-wasm/**'
+      - '.github/workflows/embedded-canvas.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'common/**'
+      - 'render-wasm/**'
+      - '.github/workflows/embedded-canvas.yml'
+
+concurrency:
+  group: embedded-canvas-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    container:
+      image: penpotapp/devenv:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: |
+          corepack enable
+          corepack install
+          pnpm install --frozen-lockfile
+
+      - name: Lint embedded canvas entry points
+        working-directory: ./frontend
+        run: |
+          pnpm exec clj-kondo --parallel --lint \
+            src/app/main.cljs \
+            src/app/main/features.cljs \
+            src/app/main/ui.cljs \
+            src/app/main/ui/routes.cljs \
+            src/app/main/ui/workspace.cljs \
+            src/app/main/data/workspace/embedded.cljs \
+            src/app/main/data/workspace/host_bridge.cljs \
+            src/app/main/ui/workspace/sidebar/ai/panel.cljs
+
+      - name: Build Penpot WASM renderer
+        working-directory: ./frontend
+        run: |
+          pnpm run build:wasm
+
+      - name: Compile Penpot frontend
+        working-directory: ./frontend
+        env:
+          # Shadow CLJS rejects an empty devtools URL even for a non-watch build.
+          # The embedded compile job does not launch the debugger server, so use
+          # a syntactically valid local URL for schema validation/compilation.
+          SHADOW_SERVER_URL: http://localhost:9630
+        run: |
+          clojure -M:dev:shadow-cljs compile main worker

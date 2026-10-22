@@ -55,6 +55,9 @@
 (def workspace-page*
   (mf/lazy #(mod/load 'app.main.ui.workspace/workspace-page*)))
 
+(def embedded-workspace-page*
+  (mf/lazy #(mod/load 'app.main.ui.workspace/embedded-workspace-page*)))
+
 (mf/defc workspace-legacy-redirect*
   {::mf/props :obj
    ::mf/private true}
@@ -260,6 +263,13 @@
                                 :project-id project-id
                                 :template template
                                 :pending-action-id pending-action-id}]]])
+
+       :embedded-workspace
+       (let [params (get params :query)
+             layout (some-> params :layout keyword)]
+         [:? {}
+          [:> embedded-workspace-page*
+           {:layout-name layout}]])
 
        :workspace
        (let [params     (get params :query)

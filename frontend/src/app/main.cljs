@@ -50,6 +50,15 @@
 
 (declare reinit)
 
+(defn- embedded-canvas-location?
+  []
+  (let [location (.-location js/window)
+        hash (or (.-hash location) "")
+        pathname (or (.-pathname location) "")]
+    (or (str/starts-with? hash "#/embed")
+        (= pathname "/embed")
+        (str/ends-with? pathname "/embed"))))
+
 (defonce app-root
   (let [el (dom/get-element "app")]
     (mf/create-root el)))
@@ -75,9 +84,15 @@
 
     ptk/WatchEvent
     (watch [_ _ stream]
-      (rx/merge
-       (rx/of (ev/initialize)
-              (dp/refresh-profile))
+      (let [embedded? (embedded-canvas-location?)]
+        (rx/merge
+         (if embedded?
+           ;; Embedded Canvas owns an in-memory document and intentionally has
+           ;; no account/backend dependency. Initialize routing immediately.
+           (rx/of (ev/initialize)
+                  (rt/init-routes))
+           (rx/of (ev/initialize)
+                  (dp/refresh-profile)))
 
        ;; Watch for profile deletion events
        (->> stream
@@ -100,10 +115,10 @@
             (rx/take 1)
             (rx/map #(ws/initialize)))
 
-       (->> stream
-            (rx/filter (ptk/type? ::feat/initialize))
-            (rx/take 1)
-            (rx/map #(initialize-rasterizer)))))))
+         (->> stream
+              (rx/filter (ptk/type? ::feat/initialize))
+              (rx/take 1)
+              (rx/map #(initialize-rasterizer))))))))
 
 (defn ^:export init
   [options]
@@ -131,8 +146,11 @@
       (cur/init-styles)
 
       (init-ui)
-      (st/emit! (plugins/initialize)
-                (initialize)))))
+      (if (embedded-canvas-location?)
+        ;; Plugin account/session initialization is host-owned in embedded mode.
+        (st/emit! (initialize))
+        (st/emit! (plugins/initialize)
+                  (initialize))))))
 
 (defn ^:export reinit
   ([]

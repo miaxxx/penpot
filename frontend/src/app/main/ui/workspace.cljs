@@ -8,11 +8,14 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data.macros :as dm]
+   [app.common.uuid :as uuid]
    [app.main.data.common :as dcm]
    [app.main.data.helpers :as dsh]
    [app.main.data.persistence :as dps]
    [app.main.data.plugins :as dpl]
    [app.main.data.workspace :as dw]
+   [app.main.data.workspace.embedded :as dw-embedded]
+   [app.main.data.workspace.host-bridge :as host-bridge]
    [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.router :as-alias rt]
@@ -194,7 +197,7 @@
 
 (mf/defc workspace*
   {::mf/wrap [mf/memo]}
-  [{:keys [team-id project-id file-id page-id layout-name]}]
+  [{:keys [team-id project-id file-id page-id layout-name embedded?]}]
 
   (let [file-id          (hooks/use-equal-memo file-id)
         page-id          (hooks/use-equal-memo page-id)
@@ -216,7 +219,9 @@
         permissions      (:permissions team)
 
         read-only?       (mf/deref refs/workspace-read-only?)
-        read-only?       (or read-only? (not (:can-edit permissions)))
+        read-only?       (if embedded?
+                           false
+                           (or read-only? (not (:can-edit permissions))))
 
         design-tokens?   (features/use-feature "design-tokens/v1")
 
@@ -226,9 +231,12 @@
 
         background-color (:background-color wglobal)]
 
-    (mf/with-effect []
-      (st/emit! (dps/initialize-persistence)
-                (dpl/update-plugins-permissions-peek)))
+    (mf/with-effect [embedded?]
+      ;; Embedded canvases are intentionally backend-free. Persistence and
+      ;; server-derived plugin permission state belong to the host application.
+      (when-not embedded?
+        (st/emit! (dps/initialize-persistence)
+                  (dpl/update-plugins-permissions-peek))))
 
     ;; Setting the layout preset by its name
     (mf/with-effect [layout-name]
@@ -238,14 +246,24 @@
       (when file-name
         (dom/set-html-title (tr "title.workspace" file-name))))
 
-    (mf/with-effect [team-id file-id]
-      (st/emit! (dw/initialize-workspace team-id file-id))
-      (fn []
-        (st/emit! ::dps/force-persist
-                  (dw/finalize-workspace team-id file-id))))
+    (mf/with-effect [embedded? team-id project-id file-id page-id]
+      (if embedded?
+        (do
+          (st/emit! (dw-embedded/initialize {:team-id team-id
+                                             :project-id project-id
+                                             :file-id file-id
+                                             :page-id page-id
+                                             :name "Nowgen Canvas"}))
+          (fn []
+            (st/emit! (dw-embedded/finalize))))
+        (do
+          (st/emit! (dw/initialize-workspace team-id file-id))
+          (fn []
+            (st/emit! ::dps/force-persist
+                      (dw/finalize-workspace team-id file-id))))))
 
-    (mf/with-effect [file-id page-id file-loaded?]
-      (when (and file-loaded? (not page-id))
+    (mf/with-effect [embedded? file-id page-id file-loaded?]
+      (when (and (not embedded?) file-loaded? (not page-id))
         (st/emit! (dcm/go-to-workspace :file-id file-id ::rt/replace true))))
 
     (mf/with-effect [file-id page-id]
@@ -284,6 +302,33 @@
                          (not file-loaded?)
                          (not @first-frame-rendered?)))
             [:> workspace-loader*])]]]]]]))
+
+(mf/defc embedded-workspace-page*
+  {::mf/lazy-load true}
+  [{:keys [layout-name]}]
+  (let [team-id    (mf/use-memo #(uuid/next))
+        project-id (mf/use-memo #(uuid/next))
+        file-id    (mf/use-memo #(uuid/next))
+        page-id    (mf/use-memo #(uuid/next))]
+
+    (mf/with-effect []
+      (host-bridge/start!)
+      (fn []
+        (host-bridge/stop!)))
+
+    (let [permissions {:can-edit true
+                       :is-admin true
+                       :is-owner true}]
+      [:& (mf/provider ctx/current-team-id) {:value team-id}
+       [:& (mf/provider ctx/permissions) {:value permissions}
+        [:& (mf/provider ctx/can-edit?) {:value true}
+         [:> workspace*
+          {:team-id team-id
+           :project-id project-id
+           :file-id file-id
+           :page-id page-id
+           :layout-name layout-name
+           :embedded? true}]]]])))
 
 (mf/defc workspace-page*
   {::mf/lazy-load true}

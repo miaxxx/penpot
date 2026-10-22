@@ -218,7 +218,7 @@
                         :modified (if modifying? (max 1 selected-count) 0)
                         :removed 0
                         :context context})
-               (reset! draft* ""))))]
+               (reset! draft* "")))))]
     [:div {:class (stl/css :ai-panel)}
      [:div {:class (stl/css :panel-header)}
       [:div
