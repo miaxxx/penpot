@@ -13,6 +13,8 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.common.geom.point :as gpt]
+   [app.common.types.path :as path]
    [app.common.types.shape :as cts]
    [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
@@ -139,6 +141,9 @@
     "ellipse" :circle
     "circle" :circle
     "text" :text
+    "line" :path
+    "arrow" :path
+    "path" :path
     nil))
 
 (defn- normalize-fill
@@ -151,6 +156,41 @@
   [radius]
   (when (number? radius)
     {:r1 radius :r2 radius :r3 radius :r4 radius}))
+
+(defn- point-value
+  [value]
+  (when (and (vector? value)
+             (= 2 (count value))
+             (every? number? value))
+    (gpt/point (first value) (second value))))
+
+(defn- path-content
+  [node-type props]
+  (let [points (->> (:points props)
+                    (keep point-value)
+                    (into []))
+        points (if (>= (count points) 2)
+                 points
+                 (let [x (or (:x props) 0)
+                       y (or (:y props) 0)
+                       width (or (:width props) 100)
+                       height (or (:height props) 0)]
+                   [(gpt/point x y)
+                    (gpt/point (+ x width) (+ y height))]))]
+    (path/points->content points :close (= node-type "path-closed"))))
+
+(defn- path-strokes
+  [node-type props]
+  [{:stroke-style (some-> (or (:strokeStyle props) "solid") keyword)
+    :stroke-alignment :center
+    :stroke-width (or (:strokeWidth props) 1)
+    :stroke-color (or (:stroke props) "#000000")
+    :stroke-opacity (or (:strokeOpacity props) 1)
+    :stroke-cap-start (some-> (:startCap props) keyword)
+    :stroke-cap-end (cond
+                      (:endCap props) (keyword (:endCap props))
+                      (= node-type "arrow") :line-arrow
+                      :else nil)}])
 
 (defn- apply-simple-patch
   [shape patch]
@@ -194,7 +234,8 @@
 (defn- create-shape-event
   [state payload]
   (let [objects (dsh/lookup-page-objects state)
-        type (node-type (:nodeType payload))
+        node-type-name (:nodeType payload)
+        type (node-type node-type-name)
         _ (when-not type
             (throw (js/Error. (str "Unsupported create node type: " (:nodeType payload)))))
         parent-id (or (parse-id (:parentId payload)) uuid/zero)
@@ -214,6 +255,7 @@
         fills (normalize-fill (:fill props) (:fillOpacity props))
         plugin-data (cond-> {}
                       alias (assoc :nowgen {"alias" alias}))
+        path? (= type :path)
         attrs
         (cond-> {:id id
                  :type type
@@ -233,6 +275,11 @@
 
           (number? (:radius props))
           (merge (radius-patch (:radius props)))
+
+          path?
+          (assoc :content (path-content node-type-name props)
+                 :fills []
+                 :strokes (path-strokes node-type-name props))
 
           (= type :text)
           (assoc :content
