@@ -786,6 +786,32 @@
             (emit-mutation! [(rotate-event (:payload message))])
             (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
+          "duplicate"
+          (let [payload (:payload message)
+                ids (vec (parse-ids (:ids payload)))
+                return-ref (atom nil)]
+            (when (empty? ids)
+              (throw (js/Error. "Duplicate requires at least one valid shape id")))
+            (st/emit! (dws/duplicate-shapes ids
+                                            :move-delta? true
+                                            :change-selection? true
+                                            :return-ref return-ref))
+            (js/setTimeout
+             (fn []
+               (if-let [duplicate-id @return-ref]
+                 (do
+                   (when-let [alias (:alias payload)]
+                     (st/emit! (dwsh/update-shapes
+                                [duplicate-id]
+                                #(assoc-in % [:plugin-data :nowgen "alias"] alias))))
+                   (respond-next-tick!
+                    message
+                    (fn [] {:createdId (str duplicate-id)
+                            :revision @revision*})))
+                 (respond-error! message "KERNEL_ERROR"
+                                 "Penpot did not return a duplicated node id")))
+             0))
+
           "delete"
           (do
             (emit-mutation! [(delete-event (:payload message))])
@@ -980,6 +1006,7 @@
                              "selection"
                              "select"
                              "create"
+                             "duplicate"
                              "update"
                              "move"
                              "resize"
