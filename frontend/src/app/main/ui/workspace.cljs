@@ -316,13 +316,19 @@
       (fn []
         (host-bridge/stop!)))
 
-    [:> workspace*
-     {:team-id team-id
-      :project-id project-id
-      :file-id file-id
-      :page-id page-id
-      :layout-name layout-name
-      :embedded? true}]))
+    (let [permissions {:can-edit true
+                       :is-admin true
+                       :is-owner true}]
+      [:& (mf/provider ctx/current-team-id) {:value team-id}
+       [:& (mf/provider ctx/permissions) {:value permissions}
+        [:& (mf/provider ctx/can-edit?) {:value true}
+         [:> workspace*
+          {:team-id team-id
+           :project-id project-id
+           :file-id file-id
+           :page-id page-id
+           :layout-name layout-name
+           :embedded? true}]]]])))
 
 (mf/defc workspace-page*
   {::mf/lazy-load true}
