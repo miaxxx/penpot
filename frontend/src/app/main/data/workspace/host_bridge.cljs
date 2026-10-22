@@ -713,8 +713,13 @@
         message (when raw (js->clj raw :keywordize-keys true))]
     (when (and (= channel (:channel message))
                (= "host" (:source message))
-               (= @allowed-origin* (.-origin event))
+               (or (nil? @allowed-origin*)
+                   (= @allowed-origin* (.-origin event)))
                (identical? (.-parent js/window) (.-source event)))
+      ;; The first accepted request is from window.parent. If referrer policy
+      ;; hides the embedding URL, pin subsequent traffic to this origin.
+      (when (nil? @allowed-origin*)
+        (reset! allowed-origin* (.-origin event)))
       (try
         (case (:type message)
           "ping"
