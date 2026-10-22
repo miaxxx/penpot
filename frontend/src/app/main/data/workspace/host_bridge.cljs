@@ -31,6 +31,7 @@
 (defonce ^:private listener* (atom nil))
 (defonce ^:private revision* (atom 0))
 (defonce ^:private transactions* (atom {}))
+(def ^:private state-watch-key ::embedded-host-state-watch)
 
 (defn- uuid-str [value]
   (when value (str value)))
@@ -479,8 +480,7 @@
   [events]
   (doseq [event events]
     (when event
-      (st/emit! event)))
-  (swap! revision* inc))
+      (st/emit! event))))
 
 (defn- handle-message!
   [event]
@@ -518,37 +518,37 @@
           "update"
           (do
             (emit-mutation! [(update-event (:payload message))])
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "move"
           (do
             (emit-mutation! (move-events @st/state (:payload message)))
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "resize"
           (do
             (emit-mutation! (resize-events (:payload message)))
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "rotate"
           (do
             (emit-mutation! [(rotate-event (:payload message))])
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "delete"
           (do
             (emit-mutation! [(delete-event (:payload message))])
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "reparent"
           (do
             (emit-mutation! [(reparent-event @st/state (:payload message))])
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "layout"
           (do
             (emit-mutation! (layout-events @st/state (:payload message)))
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "transaction-start"
           (let [transaction-id (get-in message [:payload :id])
@@ -566,26 +566,74 @@
               (throw (js/Error. (str "Unknown transaction: " transaction-id))))
             (st/emit! (dwu/commit-undo-transaction undo-id))
             (swap! transactions* dissoc transaction-id)
-            (respond-next-tick! message {:transactionId transaction-id
-                                         :revision @revision*}))
+            (respond-next-tick! message
+                                (fn [] {:transactionId transaction-id
+                                        :revision @revision*})))
 
           "undo"
           (do
             (st/emit! dwu/undo)
-            (swap! revision* inc)
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           "redo"
           (do
             (st/emit! dwu/redo)
-            (swap! revision* inc)
-            (respond-next-tick! message {:accepted true :revision @revision*}))
+            (respond-next-tick! message (fn [] {:accepted true :revision @revision*})))
 
           (respond-error! message "UNSUPPORTED_REQUEST"
                           (str "Unsupported embedded canvas request: " (:type message))))
         (catch :default cause
           (respond-error! message "KERNEL_ERROR"
                           (or (.-message cause) (str cause))))))))
+
+(defn- page-objects
+  [state]
+  (let [file-id (:current-file-id state)
+        page-id (:current-page-id state)]
+    (when (and file-id page-id)
+      (some-> (dsh/lookup-page state file-id page-id)
+              :objects))))
+
+(defn- selected-ids
+  [state]
+  (mapv str (or (dm/get-in state [:workspace-local :selected]) [])))
+
+(defn- viewport-summary
+  [state]
+  {:zoom (dm/get-in state [:workspace-local :zoom])
+   :vbox (dm/get-in state [:workspace-local :vbox])})
+
+(defn- drawing-tool
+  [state]
+  (some-> (dm/get-in state [:workspace-drawing :tool]) name))
+
+(defn- observe-workspace-state!
+  [_ _ old-state new-state]
+  (let [old-selection (selected-ids old-state)
+        new-selection (selected-ids new-state)
+        old-objects (page-objects old-state)
+        new-objects (page-objects new-state)
+        old-viewport (viewport-summary old-state)
+        new-viewport (viewport-summary new-state)
+        old-tool (drawing-tool old-state)
+        new-tool (drawing-tool new-state)]
+    (when (not= old-selection new-selection)
+      (post! {:type "selection-changed"
+              :selectedIds new-selection}))
+
+    (when (and new-objects
+               (not (identical? old-objects new-objects)))
+      (swap! revision* inc)
+      (post! {:type "document-changed"
+              :revision @revision*}))
+
+    (when (not= old-viewport new-viewport)
+      (post! {:type "viewport-changed"
+              :viewport new-viewport}))
+
+    (when (not= old-tool new-tool)
+      (post! {:type "tool-changed"
+              :tool new-tool}))))
 
 (defn start!
   []
@@ -594,6 +642,7 @@
     (reset! transactions* {})
     (let [handler (fn [event] (handle-message! event))]
       (.addEventListener js/window "message" handler)
+      (add-watch st/state state-watch-key observe-workspace-state!)
       (reset! listener* handler)
       (post! {:type "bridge-ready"
               :capabilities ["snapshot"
@@ -616,5 +665,6 @@
   []
   (when-let [handler @listener*]
     (.removeEventListener js/window "message" handler)
+    (remove-watch st/state state-watch-key)
     (reset! transactions* {})
     (reset! listener* nil)))
