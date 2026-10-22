@@ -368,7 +368,7 @@
                  :line-to {:command :line-to :params params}
                  :curve-to {:command :curve-to :params params}
                  :close-path {:command :close-path}
-                 (throw (js/Error. (str "Unsupported path segment: " command)))))
+                 (throw (js/Error. (str "Unsupported path segment: " command))))))
            (:segments props))]
       (when-not (and (>= (count segments) 2)
                      (= :move-to (:command (first segments))))
