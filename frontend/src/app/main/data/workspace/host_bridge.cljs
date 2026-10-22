@@ -315,6 +315,33 @@
              (every? number? value))
     (gpt/point (first value) (second value))))
 
+(defn- path-geometry
+  [props]
+  (when (seq (:points props))
+    (let [points (->> (:points props)
+                      (keep point-value)
+                      (into []))]
+      (when (>= (count points) 2)
+        (let [xs (map :x points)
+              ys (map :y points)
+              min-x (apply min xs)
+              min-y (apply min ys)
+              max-x (apply max xs)
+              max-y (apply max ys)
+              width (max 1 (- max-x min-x))
+              height (max 1 (- max-y min-y))
+              origin-x (if (number? (:x props)) (:x props) min-x)
+              origin-y (if (number? (:y props)) (:y props) min-y)
+              normalized (mapv (fn [point]
+                                 [( - (:x point) min-x)
+                                  ( - (:y point) min-y)])
+                               points)]
+          {:x origin-x
+           :y origin-y
+           :width width
+           :height height
+           :points normalized})))))
+
 (defn- path-content
   [node-type props]
   (if (seq (:segments props))
@@ -446,6 +473,9 @@
                    parent-id
                    (or (:frame-id parent) uuid/zero))
         props (or (:props payload) {})
+        node-type-name (:nodeType payload)
+        path-geometry (when (= type :path) (path-geometry props))
+        props (merge props path-geometry)
         id (uuid/next)
         alias (:alias payload)
         x (or (:x props) 0)
