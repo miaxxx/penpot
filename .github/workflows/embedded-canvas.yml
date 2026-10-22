@@ -1,0 +1,49 @@
+name: "CI: Embedded Canvas"
+
+on:
+  push:
+    branches:
+      - agent/embedded-canvas
+    paths:
+      - 'frontend/**'
+      - 'common/**'
+      - 'render-wasm/**'
+      - '.github/workflows/embedded-canvas.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'common/**'
+      - 'render-wasm/**'
+      - '.github/workflows/embedded-canvas.yml'
+
+concurrency:
+  group: embedded-canvas-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    container:
+      image: penpotapp/devenv:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: |
+          corepack enable
+          corepack install
+          pnpm install --frozen-lockfile
+
+      - name: Lint embedded ClojureScript
+        working-directory: ./frontend
+        run: |
+          pnpm run lint:clj
+
+      - name: Compile Penpot frontend
+        working-directory: ./frontend
+        run: |
+          clojure -M:dev:shadow-cljs compile main worker
