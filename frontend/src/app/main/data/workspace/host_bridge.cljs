@@ -284,17 +284,23 @@
 
 (defn- update-strokes
   [strokes patch]
-  (let [strokes (or (normalize-stroke patch) strokes)]
+  (let [strokes (or (normalize-stroke patch) strokes)
+        fields [[:strokeWidth :stroke-width identity]
+                [:strokeOpacity :stroke-opacity identity]
+                [:strokeStyle :stroke-style keyword]
+                [:strokeAlignment :stroke-alignment keyword]
+                [:strokeJoin :stroke-join keyword]
+                [:startCap :stroke-cap-start keyword]
+                [:endCap :stroke-cap-end keyword]]]
     (mapv
      (fn [stroke]
-       (cond-> stroke
-         (contains? patch :strokeWidth) (assoc :stroke-width (:strokeWidth patch))
-         (contains? patch :strokeOpacity) (assoc :stroke-opacity (:strokeOpacity patch))
-         (contains? patch :strokeStyle) (assoc :stroke-style (keyword (:strokeStyle patch)))
-         (contains? patch :strokeAlignment) (assoc :stroke-alignment (keyword (:strokeAlignment patch)))
-         (contains? patch :strokeJoin) (assoc :stroke-join (keyword (:strokeJoin patch)))
-         (contains? patch :startCap) (assoc :stroke-cap-start (keyword (:startCap patch)))
-         (contains? patch :endCap) (assoc :stroke-cap-end (keyword (:endCap patch)))))
+       (reduce
+        (fn [result [input-key output-key convert]]
+          (if (contains? patch input-key)
+            (assoc result output-key (convert (get patch input-key)))
+            result))
+        stroke
+        fields))
      strokes)))
 
 (defn- radius-patch
