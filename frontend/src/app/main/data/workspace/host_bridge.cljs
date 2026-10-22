@@ -245,9 +245,55 @@
 
 (defn- normalize-fill
   [value opacity]
-  (when (string? value)
+  (cond
+    (string? value)
     [{:fill-color value
-      :fill-opacity (if (number? opacity) opacity 1)}]))
+      :fill-opacity (if (number? opacity) opacity 1)}]
+
+    (and (sequential? value) (every? map? value))
+    (mapv (fn [fill]
+            (cond-> fill
+              (and (contains? fill :fill-color)
+                   (not (contains? fill :fill-opacity)))
+              (assoc :fill-opacity (if (number? opacity) opacity 1))))
+          value)
+
+    :else nil))
+
+(defn- normalize-stroke
+  [props]
+  (let [strokes (:strokes props)
+        stroke (:stroke props)]
+    (cond
+      (and (sequential? strokes) (every? map? strokes))
+      (vec strokes)
+
+      (string? stroke)
+      [{:stroke-color stroke
+        :stroke-opacity (or (:strokeOpacity props) 1)
+        :stroke-width (or (:strokeWidth props) 1)
+        :stroke-style (some-> (or (:strokeStyle props) "solid") keyword)
+        :stroke-alignment (some-> (or (:strokeAlignment props) "center") keyword)
+        :stroke-join (some-> (:strokeJoin props) keyword)
+        :stroke-cap-start (some-> (:startCap props) keyword)
+        :stroke-cap-end (some-> (:endCap props) keyword)}]
+
+      :else nil))
+
+(defn- update-strokes
+  [strokes patch]
+  (let [strokes (or (normalize-stroke patch) strokes)]
+    (mapv
+     (fn [stroke]
+       (cond-> stroke
+         (contains? patch :strokeWidth) (assoc :stroke-width (:strokeWidth patch))
+         (contains? patch :strokeOpacity) (assoc :stroke-opacity (:strokeOpacity patch))
+         (contains? patch :strokeStyle) (assoc :stroke-style (keyword (:strokeStyle patch)))
+         (contains? patch :strokeAlignment) (assoc :stroke-alignment (keyword (:strokeAlignment patch)))
+         (contains? patch :strokeJoin) (assoc :stroke-join (keyword (:strokeJoin patch)))
+         (contains? patch :startCap) (assoc :stroke-cap-start (keyword (:startCap patch)))
+         (contains? patch :endCap) (assoc :stroke-cap-end (keyword (:endCap patch))))
+     strokes)))
 
 (defn- radius-patch
   [radius]
@@ -318,7 +364,10 @@
 
 (defn- apply-simple-patch
   [shape patch]
-  (let [shape
+  (let [text-patch? (and (= :text (:type shape))
+                         (some #(contains? patch %)
+                               [:text :fontSize :fontWeight :fontFamily :fill :fillOpacity]))
+        shape
         (cond-> shape
           (contains? patch :name)
           (assoc :name (:name patch))
@@ -338,21 +387,40 @@
           (contains? patch :fill)
           (assoc :fills (normalize-fill (:fill patch) (:fillOpacity patch)))
 
+          (or (seq (:strokes patch))
+              (contains? patch :stroke)
+              (contains? patch :strokeWidth)
+              (contains? patch :strokeOpacity)
+              (contains? patch :strokeStyle)
+              (contains? patch :strokeAlignment)
+              (contains? patch :strokeJoin)
+              (contains? patch :startCap)
+              (contains? patch :endCap))
+          (assoc :strokes (update-strokes (:strokes shape) patch))
+
+          (contains? patch :blendMode)
+          (assoc :blend-mode (keyword (:blendMode patch)))
+
+          (contains? patch :shadows)
+          (assoc :shadow (:shadows patch))
+
+          (contains? patch :blur)
+          (assoc :blur (:blur patch))
+
           (contains? patch :radius)
           (merge (radius-patch (:radius patch)))
 
-          (and (= :text (:type shape))
-               (contains? patch :text))
+          text-patch?
           (assoc :content
                  (txt/change-text
                   (:content shape)
-                  (:text patch)
+                  (or (:text patch) (txt/content->text (:content shape)))
                   :font-size (str (or (:fontSize patch) 14))
                   :font-weight (str (or (:fontWeight patch) 400))
                   :font-family (or (:fontFamily patch) "sourcesanspro")
                   :font-id (or (:fontId patch) "sourcesanspro")
                   :fills (or (normalize-fill (:fill patch) (:fillOpacity patch))
-                             (txt/get-default-text-fills)))))]
+                             (txt/get-default-text-fills))))]
     shape))
 
 (defn- create-shape-event
@@ -377,6 +445,7 @@
         width (or (:width props) (if (= type :text) 160 100))
         height (or (:height props) (if (= type :text) 24 100))
         fills (normalize-fill (:fill props) (:fillOpacity props))
+        strokes (normalize-stroke props)
         plugin-data (cond-> {}
                       alias (assoc :nowgen {"alias" alias}))
         path? (= type :path)
@@ -393,6 +462,9 @@
                  :plugin-data plugin-data}
           fills
           (assoc :fills fills)
+
+          strokes
+          (assoc :strokes strokes)
 
           (number? (:opacity props))
           (assoc :opacity (:opacity props))
