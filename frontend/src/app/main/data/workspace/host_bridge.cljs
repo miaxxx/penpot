@@ -52,27 +52,30 @@
    (let [file-id (:current-file-id state)
          page-id (:current-page-id state)
          file (get-in state [:files file-id])
-         page (dsh/lookup-page state file-id page-id)
-         selected (dm/get-in state [:workspace-local :selected])
-         nodes (reduce-kv
+         page (dsh/lookup-page state file-id page-id)]
+     (when-not (and file page)
+       (throw (js/Error. "Embedded canvas is not ready")))
+     (let [selected (dm/get-in state [:workspace-local :selected])
+           nodes (reduce-kv
                 (fn [result id shape]
                   (assoc result (str id) (node-summary shape)))
                 {}
                 (:objects page))]
-     {:schema "nowgen.canvas"
-      :version 1
-      :revision (or (:revn file) 0)
-      :fileId (uuid-str file-id)
-      :pageId (uuid-str page-id)
-      :rootIds (mapv str (or (get-in page [:objects uuid/zero :shapes]) []))
-      :selectedIds (mapv str selected)
-      :nodes nodes})))
+       {:schema "nowgen.canvas"
+        :version 1
+        :revision (or (:revn file) 0)
+        :fileId (uuid-str file-id)
+        :pageId (uuid-str page-id)
+        :rootIds (mapv str (or (get-in page [:objects uuid/zero :shapes]) []))
+        :selectedIds (mapv str selected)
+        :nodes nodes}))))
 
 (defn- post!
   [payload]
-  (let [target (if (identical? js/window js/window.parent)
+  (let [parent (.-parent js/window)
+        target (if (identical? js/window parent)
                  js/window
-                 js/window.parent)]
+                 parent)]
     (.postMessage target
                   (clj->js (assoc payload
                                   :channel channel
@@ -108,7 +111,8 @@
       (try
         (case (:type message)
           "ping"
-          (respond! message {:ready true})
+          (respond! message {:ready (boolean (and (:workspace-ready @st/state)
+                                                   (:current-page-id @st/state)))})
 
           "snapshot"
           (respond! message (snapshot))
@@ -144,7 +148,7 @@
     (let [handler (fn [event] (handle-message! event))]
       (.addEventListener js/window "message" handler)
       (reset! listener* handler)
-      (post! {:type "ready"
+      (post! {:type "bridge-ready"
               :capabilities ["snapshot" "selection" "select" "undo" "redo"]}))))
 
 (defn stop!
