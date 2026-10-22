@@ -39,6 +39,67 @@
   [shape]
   (get-in shape [:plugin-data :nowgen "alias"]))
 
+(defn- fill-summary
+  [fill]
+  (select-keys fill
+               [:fill-color
+                :fill-opacity
+                :fill-color-gradient
+                :fill-image
+                :fill-color-ref-id
+                :fill-color-ref-file]))
+
+(defn- stroke-summary
+  [stroke]
+  (select-keys stroke
+               [:stroke-color
+                :stroke-opacity
+                :stroke-width
+                :stroke-style
+                :stroke-alignment
+                :stroke-cap-start
+                :stroke-cap-end
+                :stroke-color-gradient]))
+
+(defn- shadow-summary
+  [shadow]
+  (select-keys shadow
+               [:style :color :opacity :offset-x :offset-y :blur :spread :hidden]))
+
+(defn- style-summary
+  [shape]
+  {:opacity (or (:opacity shape) 1)
+   :blendMode (some-> (:blend-mode shape) name)
+   :radius {:topLeft (:r1 shape)
+            :topRight (:r2 shape)
+            :bottomRight (:r3 shape)
+            :bottomLeft (:r4 shape)}
+   :fills (mapv fill-summary (or (:fills shape) []))
+   :strokes (mapv stroke-summary (or (:strokes shape) []))
+   :shadows (mapv shadow-summary (or (:shadow shape) []))
+   :blur (when-let [blur (:blur shape)]
+           (select-keys blur [:type :value :hidden]))})
+
+(defn- layout-summary
+  [shape]
+  (when-let [layout (:layout shape)]
+    {:type (name layout)
+     :direction (some-> (:layout-flex-dir shape) name)
+     :wrap (some-> (:layout-wrap-type shape) name)
+     :alignItems (some-> (:layout-align-items shape) name)
+     :justifyContent (some-> (:layout-justify-content shape) name)
+     :gap (:layout-gap shape)
+     :padding (:layout-padding shape)
+     :horizontalSizing (some-> (:layout-item-h-sizing shape) name)
+     :verticalSizing (some-> (:layout-item-v-sizing shape) name)
+     :absolute (boolean (:layout-item-absolute shape))}))
+
+(defn- text-summary
+  [shape]
+  (when (= :text (:type shape))
+    {:characters (txt/content->text (:content shape))
+     :growType (some-> (:grow-type shape) name)}))
+
 (defn- node-summary
   [shape]
   (cond-> {:id (uuid-str (:id shape))
@@ -53,12 +114,16 @@
                     :height (:height shape)}
            :rotation (or (:rotation shape) 0)
            :hidden (boolean (:hidden shape))
-           :locked (boolean (:blocked shape))}
+           :locked (boolean (:blocked shape))
+           :style (style-summary shape)}
+    (= :text (:type shape))
+    (assoc :text (text-summary shape))
+
     (:component-id shape)
     (assoc :componentId (uuid-str (:component-id shape)))
 
     (:layout shape)
-    (assoc :layout (name (:layout shape)))))
+    (assoc :layout (layout-summary shape))))
 
 (defn snapshot
   ([]
