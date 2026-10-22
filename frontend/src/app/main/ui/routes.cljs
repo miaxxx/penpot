@@ -83,7 +83,7 @@
     ["/libraries"            :dashboard-legacy-libraries]
     ["/projects/:project-id" :dashboard-legacy-files]]
 
-   ["/workspace" :workspace]
+   ["/embed" :embedded-workspace]\n\n   ["/workspace" :workspace]
    ["/workspace/:project-id/:file-id" :workspace-legacy]])
 
 
