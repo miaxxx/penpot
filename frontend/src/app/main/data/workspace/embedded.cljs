@@ -28,7 +28,7 @@
    :page-id page-id))
 
 (defn initialize
-  [{:keys [team-id project-id file-id page-id name] :as params}]
+  [{:keys [team-id project-id file-id] :as params}]
   (let [file (make-empty-file params)]
     (ptk/reify ::initialize
       ptk/UpdateEvent
@@ -60,7 +60,7 @@
         (rx/of (dwsl/initialize-shape-layout))))))
 
 (defn finalize
-  [{:keys [file-id]}]
+  []
   (ptk/reify ::finalize
     ptk/UpdateEvent
     (update [_ state]
