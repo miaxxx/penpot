@@ -333,8 +333,8 @@
               origin-x (if (number? (:x props)) (:x props) min-x)
               origin-y (if (number? (:y props)) (:y props) min-y)
               normalized (mapv (fn [point]
-                                 [( - (:x point) min-x)
-                                  ( - (:y point) min-y)])
+                                 [(- (:x point) min-x)
+                                  (- (:y point) min-y)])
                                points)]
           {:x origin-x
            :y origin-y
@@ -473,7 +473,6 @@
                    parent-id
                    (or (:frame-id parent) uuid/zero))
         props (or (:props payload) {})
-        node-type-name (:nodeType payload)
         path-geometry (when (= type :path) (path-geometry props))
         props (merge props path-geometry)
         id (uuid/next)
