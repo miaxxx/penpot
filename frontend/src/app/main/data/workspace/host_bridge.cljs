@@ -15,7 +15,7 @@
    [app.common.data.macros :as dm]
    [app.common.geom.point :as gpt]
    [app.common.types.path :as path]
-   [app.common.types.path.impl :as path.impl]
+   [app.common.types.path.impl :as path-impl]
    [app.common.types.shape :as cts]
    [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
@@ -289,7 +289,7 @@
       (when-not (and (>= (count segments) 2)
                      (= :move-to (:command (first segments))))
         (throw (js/Error. "Path segments must begin with move-to and contain at least two segments")))
-      (path.impl/from-plain segments))
+      (path-impl/from-plain segments))
     (let [points (->> (:points props)
                       (keep point-value)
                       (into []))
