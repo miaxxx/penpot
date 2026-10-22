@@ -255,7 +255,7 @@
                                              :page-id page-id
                                              :name "Nowgen Canvas"}))
           (fn []
-            (st/emit! (dw-embedded/finalize {:file-id file-id}))))
+            (st/emit! (dw-embedded/finalize))))
         (do
           (st/emit! (dw/initialize-workspace team-id file-id))
           (fn []
