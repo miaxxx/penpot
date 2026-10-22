@@ -53,5 +53,10 @@ jobs:
 
       - name: Compile Penpot frontend
         working-directory: ./frontend
+        env:
+          # Shadow CLJS rejects an empty devtools URL even for a non-watch build.
+          # The embedded compile job does not launch the debugger server, so use
+          # a syntactically valid local URL for schema validation/compilation.
+          SHADOW_SERVER_URL: http://localhost:9630
         run: |
           clojure -M:dev:shadow-cljs compile main worker
