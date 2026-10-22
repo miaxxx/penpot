@@ -28,6 +28,7 @@
 
 (defonce ^:private listener* (atom nil))
 (defonce ^:private revision* (atom 0))
+(defonce ^:private transactions* (atom {}))
 
 (defn- uuid-str [value]
   (when value (str value)))
@@ -283,6 +284,14 @@
     [(dwt/update-dimensions ids :width width)
      (dwt/update-dimensions ids :height height)]))
 
+(defn- rotate-event
+  [payload]
+  (let [ids (vec (parse-ids (:ids payload)))
+        angle (:angle payload)]
+    (when-not (and (seq ids) (number? angle))
+      (throw (js/Error. "Rotate requires ids and angle")))
+    (dwt/increase-rotation ids angle)))
+
 (defn- delete-event
   [payload]
   (let [ids (set (parse-ids (:ids payload)))]
@@ -409,6 +418,11 @@
             (emit-mutation! (resize-events (:payload message)))
             (respond-next-tick! message {:accepted true :revision @revision*}))
 
+          "rotate"
+          (do
+            (emit-mutation! [(rotate-event (:payload message))])
+            (respond-next-tick! message {:accepted true :revision @revision*}))
+
           "delete"
           (do
             (emit-mutation! [(delete-event (:payload message))])
@@ -423,6 +437,25 @@
           (do
             (emit-mutation! (layout-events @st/state (:payload message)))
             (respond-next-tick! message {:accepted true :revision @revision*}))
+
+          "transaction-start"
+          (let [transaction-id (get-in message [:payload :id])
+                undo-id (js/Symbol)]
+            (when-not (string? transaction-id)
+              (throw (js/Error. "Transaction id is required")))
+            (swap! transactions* assoc transaction-id undo-id)
+            (st/emit! (dwu/start-undo-transaction undo-id :timeout 0))
+            (respond! message {:transactionId transaction-id}))
+
+          "transaction-commit"
+          (let [transaction-id (get-in message [:payload :id])
+                undo-id (get @transactions* transaction-id)]
+            (when-not undo-id
+              (throw (js/Error. (str "Unknown transaction: " transaction-id))))
+            (st/emit! (dwu/commit-undo-transaction undo-id))
+            (swap! transactions* dissoc transaction-id)
+            (respond-next-tick! message {:transactionId transaction-id
+                                         :revision @revision*}))
 
           "undo"
           (do
@@ -446,6 +479,7 @@
   []
   (when-not @listener*
     (reset! revision* 0)
+    (reset! transactions* {})
     (let [handler (fn [event] (handle-message! event))]
       (.addEventListener js/window "message" handler)
       (reset! listener* handler)
@@ -457,9 +491,12 @@
                              "update"
                              "move"
                              "resize"
+                             "rotate"
                              "delete"
                              "reparent"
                              "layout"
+                             "transaction-start"
+                             "transaction-commit"
                              "undo"
                              "redo"]}))))
 
@@ -467,4 +504,5 @@
   []
   (when-let [handler @listener*]
     (.removeEventListener js/window "message" handler)
+    (reset! transactions* {})
     (reset! listener* nil)))
