@@ -243,6 +243,9 @@
     "line" :path
     "arrow" :path
     "path" :path
+    "path-closed" :path
+    "closed-path" :path
+    "vector" :path
     nil))
 
 (defn- normalize-fill
@@ -511,7 +514,9 @@
 
           path?
           (assoc :content (path-content node-type-name props)
-                 :fills []
+                 :fills (if (contains? #{"path-closed" "closed-path"} node-type-name)
+                          (or fills [])
+                          [])
                  :strokes (path-strokes node-type-name props))
 
           (= type :text)
