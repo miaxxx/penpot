@@ -292,7 +292,7 @@
          (contains? patch :strokeAlignment) (assoc :stroke-alignment (keyword (:strokeAlignment patch)))
          (contains? patch :strokeJoin) (assoc :stroke-join (keyword (:strokeJoin patch)))
          (contains? patch :startCap) (assoc :stroke-cap-start (keyword (:startCap patch)))
-         (contains? patch :endCap) (assoc :stroke-cap-end (keyword (:endCap patch))))
+         (contains? patch :endCap) (assoc :stroke-cap-end (keyword (:endCap patch)))))
      strokes)))
 
 (defn- radius-patch
